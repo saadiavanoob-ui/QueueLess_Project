@@ -16,14 +16,29 @@ Flask server providing:
 - Multilingual API support (English, Malayalam, Hindi)
 - QR check-in and token cancellation
 - Customer feedback & 5-star ratings
+- Dual-engine database support (PostgreSQL for Vercel/Production, SQLite for local)
 """
 
+import os
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from werkzeug.security import generate_password_hash, check_password_hash
+from dotenv import load_dotenv
+
+# Load local environment variables if .env exists
+load_dotenv()
+
 import database
 
 app = Flask(__name__)
-app.secret_key = 'queueless_secret_college_technofest_key_2026'
+app.secret_key = os.environ.get('SECRET_KEY', 'queueless_secret_college_technofest_key_2026')
+
+# =============================================================================
+# AUTO-INITIALIZE DATABASE
+# =============================================================================
+@app.before_request
+def auto_init_database():
+    """Ensures database tables exist on cold start before any route executes."""
+    database.ensure_db_initialized()
 
 # =============================================================================
 # CONTEXT PROCESSOR (Injects categories & stats into all templates)
@@ -37,6 +52,19 @@ def inject_global_data():
         categories = []
         stats = {'total': 0, 'serving': 0, 'waiting': 0, 'completed': 0, 'cancelled': 0, 'avg_rating': 5.0, 'avg_wait': 0}
     return dict(categories=categories, global_stats=stats)
+
+# =============================================================================
+# SYSTEM HEALTH & MONITORING
+# =============================================================================
+@app.route('/health')
+@app.route('/api/health')
+def health_check():
+    """Health check endpoint for Vercel and uptime monitoring."""
+    health = database.check_health()
+    return jsonify({
+        "status": "healthy" if health.get('connected') else "unhealthy",
+        "database": health
+    }), (200 if health.get('connected') else 500)
 
 # =============================================================================
 # CUSTOMER FACING ROUTES
@@ -120,9 +148,7 @@ def customer_login():
         phone = request.form.get('phone', '').strip()
         password = request.form.get('password', '').strip()
 
-        conn = database.get_db_connection()
-        user = conn.execute('SELECT * FROM users WHERE phone = ?', (phone,)).fetchone()
-        conn.close()
+        user = database.get_user_by_phone(phone)
 
         if user and (check_password_hash(user['password_hash'], password) or password in ('cust123', 'password123')):
             session['customer_id'] = user['id']
@@ -132,18 +158,12 @@ def customer_login():
         else:
             # Demonstration convenience: auto-login or registration for mobile
             if phone and len(phone) >= 10:
-                conn = database.get_db_connection()
-                cursor = conn.cursor()
-                p_hash = generate_password_hash(password or 'cust123')
-                cursor.execute('INSERT OR IGNORE INTO users (name, phone, password_hash, role) VALUES (?, ?, ?, "customer")',
-                               ('Customer ' + phone[-4:], phone, p_hash))
-                conn.commit()
-                user = conn.execute('SELECT * FROM users WHERE phone = ?', (phone,)).fetchone()
-                conn.close()
-                session['customer_id'] = user['id']
-                session['customer_name'] = user['name']
-                session['customer_phone'] = user['phone']
-                return redirect(url_for('customer_dashboard'))
+                user = database.get_or_create_customer(phone, password=password)
+                if user:
+                    session['customer_id'] = user['id']
+                    session['customer_name'] = user['name']
+                    session['customer_phone'] = user['phone']
+                    return redirect(url_for('customer_dashboard'))
             error = "Invalid mobile number or password."
 
     return render_template('customer_login.html', error=error)
@@ -172,6 +192,10 @@ def customer_register():
                 conn.commit()
                 user_id = cursor.lastrowid
                 conn.close()
+
+                if not user_id:
+                    user = database.get_user_by_phone(phone)
+                    user_id = user['id'] if user else None
 
                 session['customer_id'] = user_id
                 session['customer_name'] = name
@@ -222,14 +246,35 @@ def operator_login():
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
 
-        if (username in ('operator', 'operator1', 'admin', 'op1') and 
-            password in ('op123', 'admin123', 'password123', 'operator')):
+        env_op_user = os.environ.get('OPERATOR_USERNAME', 'operator')
+        env_op_pass = os.environ.get('OPERATOR_PASSWORD', 'op123')
+
+        # Check database first
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE (email = ? OR phone = ? OR name = ?) AND role IN (?, ?)',
+                       (username, username, username, 'operator', 'admin'))
+        user = cursor.fetchone()
+        conn.close()
+
+        valid_auth = False
+        op_display_name = 'Counter Officer 1'
+
+        if user and check_password_hash(user['password_hash'], password):
+            valid_auth = True
+            op_display_name = user['name']
+        elif (username in (env_op_user, 'operator', 'operator1', 'admin', 'op1') and 
+              password in (env_op_pass, 'op123', 'admin123', 'password123', 'operator')):
+            valid_auth = True
+            op_display_name = 'Counter Officer 1'
+
+        if valid_auth:
             session['is_operator'] = True
-            session['operator_name'] = 'Counter Officer 1'
+            session['operator_name'] = op_display_name
             session['operator_counter'] = int(request.form.get('counter', 1))
             return redirect(url_for('operator_dashboard'))
         else:
-            error = "Invalid operator credentials. Demo: Username 'operator' | Password 'op123'"
+            error = f"Invalid operator credentials. Demo: Username '{env_op_user}' | Password '{env_op_pass}'"
 
     return render_template('operator_login.html', error=error)
 
@@ -276,12 +321,28 @@ def admin_login():
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
 
-        if username == 'admin' and password in ('admin123', 'password123', 'admin'):
+        env_admin_user = os.environ.get('ADMIN_USERNAME', 'admin')
+        env_admin_pass = os.environ.get('ADMIN_PASSWORD', 'admin123')
+
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE (email = ? OR phone = ? OR name = ?) AND role = ?',
+                       (username, username, username, 'admin'))
+        user = cursor.fetchone()
+        conn.close()
+
+        valid_auth = False
+        if user and check_password_hash(user['password_hash'], password):
+            valid_auth = True
+        elif username == env_admin_user and password in (env_admin_pass, 'admin123', 'password123', 'admin'):
+            valid_auth = True
+
+        if valid_auth:
             session['is_admin'] = True
             session['admin_user'] = username
             return redirect(url_for('admin_dashboard'))
         else:
-            error = 'Invalid credentials. Demo: Username "admin" and Password "admin123"'
+            error = f'Invalid credentials. Demo: Username "{env_admin_user}" and Password "{env_admin_pass}"'
 
     return render_template('admin_login.html', error=error)
 
@@ -567,13 +628,15 @@ def api_stats():
 # APPLICATION STARTUP
 # =============================================================================
 if __name__ == '__main__':
-    database.init_db()
+    database.ensure_db_initialized()
+    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() in ('true', '1')
+    port = int(os.environ.get('PORT', 5000))
     print("-----------------------------------------------------------------")
-    print(" QueueLess Universal Smart Queue Management System Running!")
-    print(" Live URL: http://127.0.0.1:5000")
-    print(" Customer Portal: http://127.0.0.1:5000/customer/dashboard")
-    print(" Operator Desk: http://127.0.0.1:5000/operator/dashboard (operator/op123)")
-    print(" Admin Console: http://127.0.0.1:5000/admin (admin/admin123)")
-    print(" TV Public Display: http://127.0.0.1:5000/display")
+    print(f" QueueLess Universal Smart Queue Management System Running! ({database.get_db_type().upper()})")
+    print(f" Live URL: http://127.0.0.1:{port}")
+    print(f" Customer Portal: http://127.0.0.1:{port}/customer/dashboard")
+    print(f" Operator Desk: http://127.0.0.1:{port}/operator/dashboard")
+    print(f" Admin Console: http://127.0.0.1:{port}/admin")
+    print(f" TV Public Display: http://127.0.0.1:{port}/display")
     print("-----------------------------------------------------------------")
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)

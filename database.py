@@ -1,203 +1,471 @@
 """
 =============================================================================
-QueueLess - Universal Smart Queue Management Database Layer
+QueueLess - Universal Smart Queue Management Database Layer (Dual Engine)
 =============================================================================
-Full relational SQLite architecture supporting:
-- Universal institution selection (Hospitals, Banks, Akshaya, Clinics, Railway, etc.)
-- Branches with opening/closing hours and location
-- Services with customizable average duration and token prefixes
-- Multiple simultaneous counters per branch with status (open/break/closed)
-- Priority queuing (Regular, Senior, PwD, Pregnant, Emergency)
-- Appointment scheduling vs Instant walk-in
-- Real QR verification codes and check-in confirmation
-- Smart waiting time estimation: (people_ahead * avg_duration) / active_counters
-- User authentication (Customer, Operator, Admin) with Werkzeug password hashing
-- Feedback & Ratings system
-- Real-time audit logs
+Supports:
+- PostgreSQL (Neon, Supabase, Vercel Postgres, AWS RDS) via DATABASE_URL
+- SQLite fallback for local development and offline environments
+- Safe execution on Vercel Serverless (auto-fallback to /tmp when running SQLite)
+- Preserves all 8 institutions, cascading branches, services, counters, tokens,
+  QR verification codes, and analytics.
 """
 
-import sqlite3
 import os
+import sys
+import tempfile
 import math
 import random
 import string
+import re
+import decimal
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'queueless.db')
+# Try importing psycopg2 for PostgreSQL support
+try:
+    import psycopg2
+    import psycopg2.extras
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
+
+import sqlite3
+
+# =============================================================================
+# DATABASE ENGINE DETECTION & CONNECTION CONFIGURATION
+# =============================================================================
+
+def get_database_url():
+    """Detects PostgreSQL connection URL from environment variables."""
+    return (
+        os.environ.get('DATABASE_URL') or 
+        os.environ.get('POSTGRES_URL') or 
+        os.environ.get('POSTGRES_PRISMA_URL') or 
+        os.environ.get('POSTGRES_URL_NON_POOLING')
+    )
+
+def is_postgres():
+    """Returns True if PostgreSQL connection URL is configured."""
+    return bool(get_database_url())
+
+def get_db_type():
+    """Returns 'postgres' or 'sqlite'."""
+    return 'postgres' if is_postgres() else 'sqlite'
+
+def get_sqlite_path():
+    """
+    Returns the appropriate SQLite database file path.
+    On Vercel / AWS Lambda, root directory is read-only, so the system temp directory is used (/tmp on Linux).
+    """
+    if os.environ.get('VERCEL') or os.environ.get('AWS_LAMBDA_FUNCTION_NAME'):
+        return os.path.join(tempfile.gettempdir(), 'queueless.db')
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'queueless.db')
+
+# =============================================================================
+# POSTGRESQL WRAPPER CLASSES (Emulates SQLite interface & Translates SQL)
+# =============================================================================
+
+class PostgresCursorWrapper:
+    """Wraps a psycopg2 cursor to provide SQLite-compatible behavior."""
+
+    def __init__(self, raw_cursor):
+        self._cur = raw_cursor
+        self.lastrowid = None
+
+    def execute(self, query, params=None):
+        sql, pars = self._translate_sql(query, params)
+        if pars is not None:
+            self._cur.execute(sql, pars)
+        else:
+            self._cur.execute(sql)
+
+        if "RETURNING id" in sql:
+            try:
+                row = self._cur.fetchone()
+                if row:
+                    self.lastrowid = row['id'] if isinstance(row, dict) else row[0]
+            except Exception:
+                pass
+        return self
+
+    def executemany(self, query, params_list):
+        sql, _ = self._translate_sql(query, None)
+        self._cur.executemany(sql, params_list)
+        return self
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        return self._normalize_row(row) if row else None
+
+    def fetchall(self):
+        rows = self._cur.fetchall()
+        return [self._normalize_row(r) for r in rows]
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    def close(self):
+        self._cur.close()
+
+    def _normalize_row(self, row):
+        """Converts datetime, Decimal, etc. to standard JSON-compatible formats."""
+        if row is None:
+            return None
+        res = dict(row)
+        for k, v in res.items():
+            if hasattr(v, 'strftime'):
+                res[k] = v.strftime('%Y-%m-%d %H:%M:%S')
+            elif isinstance(v, decimal.Decimal):
+                res[k] = float(v)
+        return res
+
+    def _translate_sql(self, query, params):
+        """Translates SQLite dialect to PostgreSQL dialect."""
+        q = query.replace('?', '%s')
+
+        # Translate INSERT OR IGNORE INTO <table>
+        if re.search(r'\bINSERT\s+OR\s+IGNORE\s+INTO\b', q, re.IGNORECASE):
+            q = re.sub(r'\bINSERT\s+OR\s+IGNORE\s+INTO\b', 'INSERT INTO', q, flags=re.IGNORECASE)
+            if 'ON CONFLICT' not in q.upper():
+                q = q.rstrip(' ;') + ' ON CONFLICT DO NOTHING'
+
+        # Auto-append RETURNING id for INSERT queries if not present
+        if (re.match(r'^\s*INSERT\s+INTO\b', q, re.IGNORECASE) and 
+            'RETURNING' not in q.upper() and 
+            'ON CONFLICT DO NOTHING' not in q.upper()):
+            q = q.rstrip(' ;') + ' RETURNING id'
+
+        # Translate SQLite julianday calculation to PostgreSQL EXTRACT(EPOCH ...)
+        if 'julianday(' in q.lower():
+            q = re.sub(
+                r'\(julianday\(serving_started_at\)\s*-\s*julianday\(created_at\)\)\s*\*\s*24\s*\*\s*60',
+                'EXTRACT(EPOCH FROM (serving_started_at - created_at)) / 60.0',
+                q,
+                flags=re.IGNORECASE
+            )
+
+        return q, params
+
+
+class PostgresConnectionWrapper:
+    """Wraps psycopg2 connection to match SQLite connection semantics."""
+
+    def __init__(self, raw_conn):
+        self._conn = raw_conn
+
+    def cursor(self):
+        return PostgresCursorWrapper(self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor))
+
+    def execute(self, query, params=None):
+        cur = self.cursor()
+        cur.execute(query, params)
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.rollback()
+        else:
+            self.commit()
+        self.close()
+
+# =============================================================================
+# CONNECTION FACTORY
+# =============================================================================
 
 def get_db_connection():
-    """Returns a connection to the SQLite database with dictionary-like row access."""
-    conn = sqlite3.connect(DB_PATH, timeout=15)
-    conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA foreign_keys = ON;')
-    return conn
+    """Returns a connection to either PostgreSQL or SQLite with dictionary-like row access."""
+    if is_postgres():
+        if not PSYCOPG2_AVAILABLE:
+            raise RuntimeError("psycopg2 is required for PostgreSQL. Please install psycopg2-binary.")
+        
+        raw_url = get_database_url()
+        # Normalize postgres:// to postgresql://
+        if raw_url.startswith('postgres://'):
+            raw_url = 'postgresql://' + raw_url[len('postgres://'):]
+        
+        # Ensure SSL mode for remote cloud databases (Neon, Supabase)
+        if 'sslmode=' not in raw_url and 'localhost' not in raw_url and '127.0.0.1' not in raw_url:
+            separator = '&' if '?' in raw_url else '?'
+            raw_url = f"{raw_url}{separator}sslmode=require"
+
+        conn = psycopg2.connect(raw_url)
+        return PostgresConnectionWrapper(conn)
+    else:
+        # SQLite
+        db_path = get_sqlite_path()
+        conn = sqlite3.connect(db_path, timeout=15)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA foreign_keys = ON;')
+        try:
+            conn.execute('PRAGMA journal_mode = WAL;')
+            conn.execute('PRAGMA busy_timeout = 5000;')
+        except Exception:
+            pass
+        return conn
+
+# =============================================================================
+# SCHEMA DEFINITIONS
+# =============================================================================
+
+PG_SCHEMA = '''
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE,
+    phone TEXT UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'customer',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS institutions (
+    id SERIAL PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    icon TEXT NOT NULL,
+    description TEXT,
+    is_active INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS branches (
+    id SERIAL PRIMARY KEY,
+    institution_id INTEGER NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    branch_name TEXT NOT NULL,
+    location TEXT NOT NULL,
+    opening_time TEXT DEFAULT '09:00 AM',
+    closing_time TEXT DEFAULT '05:00 PM',
+    is_active INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS services (
+    id SERIAL PRIMARY KEY,
+    institution_id INTEGER NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    service_name TEXT NOT NULL,
+    avg_duration_mins INTEGER DEFAULT 10,
+    prefix TEXT NOT NULL,
+    is_active INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS counters (
+    id SERIAL PRIMARY KEY,
+    branch_id INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+    counter_number INTEGER NOT NULL,
+    counter_name TEXT NOT NULL,
+    status TEXT DEFAULT 'open',
+    is_active INTEGER DEFAULT 1,
+    UNIQUE(branch_id, counter_number)
+);
+
+CREATE TABLE IF NOT EXISTS tokens (
+    id SERIAL PRIMARY KEY,
+    token_number TEXT UNIQUE NOT NULL,
+    verification_code TEXT NOT NULL,
+    customer_name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    institution_id INTEGER NOT NULL REFERENCES institutions(id),
+    branch_id INTEGER NOT NULL REFERENCES branches(id),
+    service_id INTEGER NOT NULL REFERENCES services(id),
+    counter_number INTEGER DEFAULT 1,
+    priority TEXT DEFAULT 'regular',
+    token_type TEXT DEFAULT 'instant',
+    appointment_date TEXT,
+    appointment_slot TEXT,
+    status TEXT DEFAULT 'waiting',
+    checkin_status TEXT DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    serving_started_at TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id SERIAL PRIMARY KEY,
+    token_number TEXT NOT NULL,
+    customer_name TEXT,
+    rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+    comment TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS queue_logs (
+    id SERIAL PRIMARY KEY,
+    token_number TEXT NOT NULL,
+    old_status TEXT,
+    new_status TEXT NOT NULL,
+    counter_number INTEGER,
+    changed_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+'''
+
+SQLITE_SCHEMA = '''
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE,
+    phone TEXT UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'customer',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS institutions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    icon TEXT NOT NULL,
+    description TEXT,
+    is_active INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS branches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    institution_id INTEGER NOT NULL,
+    branch_name TEXT NOT NULL,
+    location TEXT NOT NULL,
+    opening_time TEXT DEFAULT '09:00 AM',
+    closing_time TEXT DEFAULT '05:00 PM',
+    is_active INTEGER DEFAULT 1,
+    FOREIGN KEY (institution_id) REFERENCES institutions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS services (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    institution_id INTEGER NOT NULL,
+    service_name TEXT NOT NULL,
+    avg_duration_mins INTEGER DEFAULT 10,
+    prefix TEXT NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    FOREIGN KEY (institution_id) REFERENCES institutions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS counters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    branch_id INTEGER NOT NULL,
+    counter_number INTEGER NOT NULL,
+    counter_name TEXT NOT NULL,
+    status TEXT DEFAULT 'open',
+    is_active INTEGER DEFAULT 1,
+    FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+    UNIQUE(branch_id, counter_number)
+);
+
+CREATE TABLE IF NOT EXISTS tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_number TEXT UNIQUE NOT NULL,
+    verification_code TEXT NOT NULL,
+    customer_name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    institution_id INTEGER NOT NULL,
+    branch_id INTEGER NOT NULL,
+    service_id INTEGER NOT NULL,
+    counter_number INTEGER DEFAULT 1,
+    priority TEXT DEFAULT 'regular',
+    token_type TEXT DEFAULT 'instant',
+    appointment_date TEXT,
+    appointment_slot TEXT,
+    status TEXT DEFAULT 'waiting',
+    checkin_status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    serving_started_at DATETIME,
+    completed_at DATETIME,
+    FOREIGN KEY (institution_id) REFERENCES institutions(id),
+    FOREIGN KEY (branch_id) REFERENCES branches(id),
+    FOREIGN KEY (service_id) REFERENCES services(id)
+);
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_number TEXT NOT NULL,
+    customer_name TEXT,
+    rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+    comment TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS queue_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_number TEXT NOT NULL,
+    old_status TEXT,
+    new_status TEXT NOT NULL,
+    counter_number INTEGER,
+    changed_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+'''
+
+# =============================================================================
+# INITIALIZATION & SEEDING
+# =============================================================================
+
+_DB_INITIALIZED = False
+
+def ensure_db_initialized():
+    """Idempotently checks if the database is initialized, creating tables and seeding if empty."""
+    global _DB_INITIALIZED
+    if _DB_INITIALIZED:
+        return
+    try:
+        init_db()
+        _DB_INITIALIZED = True
+    except Exception as e:
+        print(f"[QueueLess] Database auto-init error: {e}")
 
 def init_db():
-    """Initializes tables and seeds rich initial data if empty."""
+    """Initializes schema and seeds initial demonstration master data."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # 1. Users table (Customer, Operator, Admin)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE,
-            phone TEXT UNIQUE,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'customer', -- 'customer', 'operator', 'admin'
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+    if is_postgres():
+        for stmt in PG_SCHEMA.strip().split(';'):
+            s = stmt.strip()
+            if s:
+                cursor.execute(s)
+        conn.commit()
+    else:
+        for stmt in SQLITE_SCHEMA.strip().split(';'):
+            s = stmt.strip()
+            if s:
+                cursor.execute(s)
+        conn.commit()
 
-    # 2. Institutions table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS institutions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT UNIQUE NOT NULL,
-            name TEXT NOT NULL,
-            category TEXT NOT NULL,
-            icon TEXT NOT NULL,
-            description TEXT,
-            is_active INTEGER DEFAULT 1
-        )
-    ''')
+        # Check for legacy tokens migration on SQLite
+        try:
+            cursor.execute('PRAGMA table_info(tokens)')
+            existing_cols = [r['name'] for r in cursor.fetchall()]
+            if existing_cols and 'verification_code' not in existing_cols:
+                cursor.execute('ALTER TABLE tokens RENAME TO tokens_legacy')
+                conn.commit()
+        except Exception:
+            pass
 
-    # 3. Branches table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS branches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            institution_id INTEGER NOT NULL,
-            branch_name TEXT NOT NULL,
-            location TEXT NOT NULL,
-            opening_time TEXT DEFAULT '09:00 AM',
-            closing_time TEXT DEFAULT '05:00 PM',
-            is_active INTEGER DEFAULT 1,
-            FOREIGN KEY (institution_id) REFERENCES institutions(id) ON DELETE CASCADE
-        )
-    ''')
-
-    # 4. Services table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS services (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            institution_id INTEGER NOT NULL,
-            service_name TEXT NOT NULL,
-            avg_duration_mins INTEGER DEFAULT 10,
-            prefix TEXT NOT NULL,
-            is_active INTEGER DEFAULT 1,
-            FOREIGN KEY (institution_id) REFERENCES institutions(id) ON DELETE CASCADE
-        )
-    ''')
-
-    # 5. Counters table (Multiple counters per branch)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS counters (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            branch_id INTEGER NOT NULL,
-            counter_number INTEGER NOT NULL,
-            counter_name TEXT NOT NULL,
-            status TEXT DEFAULT 'open', -- 'open', 'break', 'closed'
-            is_active INTEGER DEFAULT 1,
-            FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-            UNIQUE(branch_id, counter_number)
-        )
-    ''')
-
-    # Check if existing tokens table needs schema upgrade
-    cursor.execute('PRAGMA table_info(tokens)')
-    existing_cols = [r['name'] for r in cursor.fetchall()]
-    if existing_cols and 'verification_code' not in existing_cols:
-        print("Migrating legacy tokens table to modern relational schema...")
-        cursor.execute('ALTER TABLE tokens RENAME TO tokens_legacy')
-
-    # 6. Tokens table (Comprehensive queue tokens)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tokens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token_number TEXT UNIQUE NOT NULL,
-            verification_code TEXT NOT NULL,
-            customer_name TEXT NOT NULL,
-            phone TEXT NOT NULL,
-            institution_id INTEGER NOT NULL,
-            branch_id INTEGER NOT NULL,
-            service_id INTEGER NOT NULL,
-            counter_number INTEGER DEFAULT 1,
-            priority TEXT DEFAULT 'regular', -- 'regular', 'senior', 'pwd', 'pregnant', 'emergency'
-            token_type TEXT DEFAULT 'instant', -- 'instant', 'appointment'
-            appointment_date TEXT,
-            appointment_slot TEXT,
-            status TEXT DEFAULT 'waiting', -- 'waiting', 'called', 'serving', 'completed', 'skipped', 'cancelled'
-            checkin_status TEXT DEFAULT 'pending', -- 'pending', 'checked_in'
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            serving_started_at DATETIME,
-            completed_at DATETIME,
-            FOREIGN KEY (institution_id) REFERENCES institutions(id),
-            FOREIGN KEY (branch_id) REFERENCES branches(id),
-            FOREIGN KEY (service_id) REFERENCES services(id)
-        )
-    ''')
-
-    # 7. Feedback & Ratings table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS feedback (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token_number TEXT NOT NULL,
-            customer_name TEXT,
-            rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
-            comment TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-    # 8. Queue Audit Logs
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS queue_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token_number TEXT NOT NULL,
-            old_status TEXT,
-            new_status TEXT NOT NULL,
-            counter_number INTEGER,
-            changed_by TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-    conn.commit()
-
-    # Seed master data if institutions table is empty
+    # Check if institutions table is empty
     cursor.execute('SELECT COUNT(*) AS count FROM institutions')
-    if cursor.fetchone()['count'] == 0:
-        seed_master_data(cursor, conn)
+    row = cursor.fetchone()
+    count = int(row['count'] if row else 0)
 
-    # If tokens_legacy exists, migrate existing tokens into new table
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tokens_legacy'")
-    if cursor.fetchone():
-        cursor.execute('SELECT COUNT(*) AS count FROM tokens')
-        if cursor.fetchone()['count'] == 0:
-            cursor.execute('SELECT * FROM tokens_legacy')
-            legacy_rows = cursor.fetchall()
-            for row in legacy_rows:
-                vcode = f"QL-{random.randint(1000, 9999)}"
-                cursor.execute('''
-                    INSERT INTO tokens (
-                        token_number, verification_code, customer_name, phone,
-                        institution_id, branch_id, service_id, counter_number,
-                        priority, token_type, status, checkin_status,
-                        created_at, serving_started_at, completed_at
-                    ) VALUES (?, ?, ?, ?, 1, 1, 1, ?, 'regular', 'instant', ?, 'checked_in', ?, ?, ?)
-                ''', (row['token_number'], vcode, row['customer_name'], row['phone'],
-                      row['counter_number'] or 1, row['status'],
-                      row['created_at'], row['serving_started_at'], row['completed_at']))
-            print(f"Successfully migrated {len(legacy_rows)} legacy tokens.")
-            conn.commit()
+    if count == 0:
+        seed_master_data(cursor, conn)
 
     conn.close()
 
 def seed_master_data(cursor, conn):
-    """Seeds the full 8 universal institutions, branches, services, counters, and admin/operator users."""
-    print("Seeding rich master catalog and demo data...")
+    """Seeds the full 8 universal institutions, branches, services, counters, and demo users."""
+    print("[QueueLess] Seeding master catalog and demo data...")
 
     # Default Users (Admin, Operator, Customer)
     admin_hash = generate_password_hash('admin123')
@@ -302,7 +570,7 @@ def seed_master_data(cursor, conn):
         VALUES (?, ?, ?, ?)
     ''', services)
 
-    # Create multiple counters for each branch (3 to 4 counters per branch!)
+    # Create multiple counters for each branch (3 to 4 counters per branch)
     counters = []
     for b_row in branch_rows:
         b_id = b_row['id']
@@ -316,13 +584,12 @@ def seed_master_data(cursor, conn):
         VALUES (?, ?, ?, ?)
     ''', counters)
 
-    # Seed lively demonstration tokens
-    # Get hospital main branch and general op service
-    cursor.execute('SELECT id FROM services WHERE prefix = "HOSP" LIMIT 1')
+    # Fetch service IDs safely using parameterized queries
+    cursor.execute('SELECT id FROM services WHERE prefix = ? LIMIT 1', ('HOSP',))
     s_hosp = cursor.fetchone()['id']
-    cursor.execute('SELECT id FROM services WHERE prefix = "BANK" LIMIT 1')
+    cursor.execute('SELECT id FROM services WHERE prefix = ? LIMIT 1', ('BANK',))
     s_bank = cursor.fetchone()['id']
-    cursor.execute('SELECT id FROM services WHERE prefix = "AKSH" LIMIT 1')
+    cursor.execute('SELECT id FROM services WHERE prefix = ? LIMIT 1', ('AKSH',))
     s_aksh = cursor.fetchone()['id']
 
     hosp_b1 = b_map['Main Campus (Medical Square)']
@@ -355,11 +622,11 @@ def seed_master_data(cursor, conn):
     # Seed sample feedback
     cursor.execute('''
         INSERT INTO feedback (token_number, customer_name, rating, comment)
-        VALUES ('HOSP-101', 'Rahul Sharma', 5, 'Extremely quick service! No crowded waiting room at all.')
-    ''')
+        VALUES (?, ?, ?, ?)
+    ''', ('HOSP-101', 'Rahul Sharma', 5, 'Extremely quick service! No crowded waiting room at all.'))
 
     conn.commit()
-    print("Master data and demo tokens successfully seeded!")
+    print("[QueueLess] Master catalog and demo tokens successfully seeded!")
 
 # =============================================================================
 # HELPER & QUERY FUNCTIONS
@@ -371,9 +638,13 @@ def generate_verification_code():
     rand_part = ''.join(random.choices(chars, k=4))
     return f"QL-{rand_part}"
 
-def generate_token_number(prefix):
+def generate_token_number(prefix, conn=None):
     """Generates a sequential human-friendly unique token number per prefix (e.g. 'HOSP-106')."""
-    conn = get_db_connection()
+    close_when_done = False
+    if conn is None:
+        conn = get_db_connection()
+        close_when_done = True
+
     cursor = conn.cursor()
     cursor.execute('''
         SELECT token_number FROM tokens
@@ -381,7 +652,9 @@ def generate_token_number(prefix):
         ORDER BY id DESC LIMIT 1
     ''', (f"{prefix}-%",))
     row = cursor.fetchone()
-    conn.close()
+
+    if close_when_done:
+        conn.close()
 
     if row:
         try:
@@ -397,8 +670,7 @@ def add_token(customer_name, phone, institution_id, branch_id, service_id,
               priority='regular', token_type='instant', appointment_date=None, appointment_slot=None):
     """
     Inserts a newly generated token with atomic token numbering and QR verification code.
-    Calculates estimated wait time using:
-    (people_ahead * avg_duration) / active_counters
+    Calculates estimated wait time using: (people_ahead * avg_duration) / active_counters
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -408,7 +680,7 @@ def add_token(customer_name, phone, institution_id, branch_id, service_id,
     service_row = cursor.fetchone()
     prefix = service_row['prefix'] if service_row else 'QLES'
 
-    token_num = generate_token_number(prefix)
+    token_num = generate_token_number(prefix, conn=conn)
     verification_code = generate_verification_code()
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
@@ -477,7 +749,7 @@ def get_token_by_number(token_number):
         SELECT COUNT(*) AS active_count FROM counters
         WHERE branch_id = ? AND status = 'open' AND is_active = 1
     ''', (branch_id,))
-    active_counters = cursor.fetchone()['active_count']
+    active_counters = int(cursor.fetchone()['active_count'] or 1)
     if active_counters <= 0:
         active_counters = 1
     token['active_counters'] = active_counters
@@ -492,25 +764,22 @@ def get_token_by_number(token_number):
     token['current_serving'] = serving_row['token_number'] if serving_row else "None currently"
     token['serving_counter'] = serving_row['counter_number'] if serving_row else 1
 
-    # 3. People ahead calculation:
-    # Priority weighting: emergency > senior/pwd/pregnant > regular
+    # 3. People ahead calculation
     if token['status'] == 'waiting':
         cursor.execute('''
             SELECT COUNT(*) AS ahead_count FROM tokens
             WHERE branch_id = ? AND status = 'waiting' AND id < ?
         ''', (branch_id, token['id']))
-        base_ahead = cursor.fetchone()['ahead_count']
+        base_ahead = int(cursor.fetchone()['ahead_count'] or 0)
         
-        # If someone is serving, count them as ahead
+        # If someone is currently serving, count them as ahead
         people_ahead = base_ahead + (1 if serving_row else 0)
         token['people_ahead'] = people_ahead
 
-        # Smart wait estimation formula:
-        # wait = ceil((people_ahead * avg_duration) / active_counters)
+        # Smart wait estimation formula: ceil((people_ahead * avg_duration) / active_counters)
         estimated_mins = math.ceil((people_ahead * avg_duration) / max(1, active_counters))
         token['estimated_wait_time_minutes'] = max(2, estimated_mins) if people_ahead > 0 else 0
 
-        # Dynamic Status helper: "Almost Your Turn" if people_ahead <= 2
         if people_ahead <= 2:
             token['display_status'] = 'Almost Your Turn'
         else:
@@ -635,7 +904,6 @@ def call_next_token(branch_id=None, counter_number=1, operator_name="Operator"):
     1. Completes any token currently in 'serving' at this specific counter.
     2. Selects the next eligible token from the queue, prioritizing Emergency, then Senior/PwD/Pregnant, then Regular.
     3. Atomically sets status to 'serving' and binds it to this counter.
-    Guarantees no two counters can call the same token!
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -655,10 +923,7 @@ def call_next_token(branch_id=None, counter_number=1, operator_name="Operator"):
             WHERE counter_number = ? AND status IN ('serving', 'called')
         ''', (now_str, counter_number))
 
-    # Priority sorting:
-    # 1. Emergency
-    # 2. Senior / PwD / Pregnant
-    # 3. Regular
+    # Priority sorting
     query = '''
         SELECT id FROM tokens
         WHERE status = 'waiting'
@@ -699,7 +964,6 @@ def call_next_token(branch_id=None, counter_number=1, operator_name="Operator"):
     ''', (now_str, counter_number, next_id))
 
     if cursor.rowcount == 0:
-        # Race condition resolved: already taken by another counter
         conn.commit()
         conn.close()
         return None
@@ -792,14 +1056,12 @@ def get_branch_counters(branch_id):
 def get_display_board_data(branch_id=None):
     """
     Returns data needed for the Public TV Display Screen:
-    - Currently serving tokens per active counter (Counter 1: HOSP-102, Counter 2: BANK-101, etc.)
+    - Currently serving tokens per active counter
     - Next waiting tokens (for marquee/ticker)
-    - Branch information
     """
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Active counters serving tokens
     query_serving = '''
         SELECT 
             t.token_number,
@@ -822,7 +1084,6 @@ def get_display_board_data(branch_id=None):
     cursor.execute(query_serving, params_serving)
     serving_counters = [dict(r) for r in cursor.fetchall()]
 
-    # Up next waiting tokens (Top 10)
     query_waiting = '''
         SELECT 
             t.token_number,
@@ -944,25 +1205,25 @@ def get_queue_statistics():
     cursor = conn.cursor()
 
     cursor.execute('SELECT COUNT(*) AS total FROM tokens')
-    total = cursor.fetchone()['total']
+    total = int(cursor.fetchone()['total'] or 0)
 
     cursor.execute("SELECT COUNT(*) AS serving FROM tokens WHERE status = 'serving'")
-    serving = cursor.fetchone()['serving']
+    serving = int(cursor.fetchone()['serving'] or 0)
 
     cursor.execute("SELECT COUNT(*) AS waiting FROM tokens WHERE status = 'waiting'")
-    waiting = cursor.fetchone()['waiting']
+    waiting = int(cursor.fetchone()['waiting'] or 0)
 
     cursor.execute("SELECT COUNT(*) AS completed FROM tokens WHERE status = 'completed'")
-    completed = cursor.fetchone()['completed']
+    completed = int(cursor.fetchone()['completed'] or 0)
 
     cursor.execute("SELECT COUNT(*) AS cancelled FROM tokens WHERE status = 'cancelled'")
-    cancelled = cursor.fetchone()['cancelled']
+    cancelled = int(cursor.fetchone()['cancelled'] or 0)
 
     # Average rating
     cursor.execute("SELECT AVG(rating) AS avg_rating, COUNT(*) AS count FROM feedback")
     fb_row = cursor.fetchone()
-    avg_rating = round(fb_row['avg_rating'] or 5.0, 1)
-    feedback_count = fb_row['count']
+    avg_rating = round(float(fb_row['avg_rating'] or 5.0), 1)
+    feedback_count = int(fb_row['count'] or 0)
 
     # Average wait time in minutes (based on completed tokens)
     cursor.execute('''
@@ -970,7 +1231,8 @@ def get_queue_statistics():
         FROM tokens WHERE status = 'completed' AND serving_started_at IS NOT NULL
     ''')
     avg_wait_row = cursor.fetchone()
-    avg_wait = round(avg_wait_row['avg_wait'] or 8.5, 1)
+    raw_avg_wait = avg_wait_row['avg_wait'] if avg_wait_row else None
+    avg_wait = round(float(raw_avg_wait or 8.5), 1)
 
     conn.close()
     return {
@@ -1053,3 +1315,69 @@ def get_tokens_by_phone(phone):
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+# =============================================================================
+# USER MANAGEMENT & HEALTH CHECK
+# =============================================================================
+
+def get_user_by_phone(phone):
+    """Finds user by phone number."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE phone = ?', (phone.strip(),))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_user_by_id(user_id):
+    """Finds user by ID."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_or_create_customer(phone, name=None, password='cust123'):
+    """Finds or creates a customer account."""
+    existing = get_user_by_phone(phone)
+    if existing:
+        return existing
+
+    p_hash = generate_password_hash(password or 'cust123')
+    c_name = name or ('Customer ' + phone[-4:])
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO users (name, phone, password_hash, role)
+            VALUES (?, ?, ?, 'customer')
+        ''', (c_name, phone.strip(), p_hash))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        conn.close()
+
+    return get_user_by_phone(phone)
+
+def check_health():
+    """Verifies database connectivity and returns system status."""
+    db_type = get_db_type()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 AS ok")
+        cursor.fetchone()
+        conn.close()
+        return {
+            "connected": True,
+            "engine": db_type,
+            "status": "healthy"
+        }
+    except Exception as e:
+        return {
+            "connected": False,
+            "engine": db_type,
+            "error": str(e)
+        }
