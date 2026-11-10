@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}QueueLess - Universal Smart Queue Management System{% endblock %}</title>
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome Icons 6.5.1 CDN -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/logo.svg') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+  <!-- ==================================================================== -->
+  <!-- TOP ACCESSIBILITY & REGIONAL LANGUAGE STRIP -->
+  <!-- ==================================================================== -->
+  <div class="top-utility-bar">
+    <div class="container utility-container">
+      <div class="utility-left">
+        <span class="live-pulse-dot"></span>
+        <span style="font-size: 0.82rem; font-weight: 600; color: #a7f3d0;">
+          <i class="fa-solid fa-satellite-dish"></i> Live Multi-Counter Queue System Active
+        </span>
+      </div>
+
+      <div class="utility-right">
+        <!-- Accessibility Controls -->
+        <div class="a11y-controls">
+          <span style="font-size: 0.8rem; font-weight: 700; color: #a7f3d0; margin-right: 4px;" data-i18n="font_size">Font:</span>
+          <button type="button" class="a11y-btn" onclick="I18n.setFontSize('normal')" title="Normal Font Size">A</button>
+          <button type="button" class="a11y-btn" onclick="I18n.setFontSize('large')" title="Large Font Size">A+</button>
+          <button type="button" class="a11y-btn" onclick="I18n.setFontSize('xlarge')" title="Extra Large Font Size">A++</button>
+          <button type="button" class="a11y-btn" onclick="I18n.toggleHighContrast()" title="Toggle High Contrast Mode">
+            <i class="fa-solid fa-circle-half-stroke"></i>
+          </button>
+        </div>
+
+        <!-- Language Selector Dropdown -->
+        <div class="lang-selector-wrap">
+          <i class="fa-solid fa-language" style="color: #6ee7b7; font-size: 0.95rem;"></i>
+          <select id="langSelect" class="lang-select" onchange="I18n.setLanguage(this.value)">
+            <option value="en">English (EN)</option>
+            <option value="ml">മലയാളം (ML)</option>
+            <option value="hi">हिन्दी (HI)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================== -->
+  <!-- NAVIGATION BAR -->
+  <!-- ==================================================================== -->
+  <header class="navbar">
+    <div class="container nav-container">
+      <!-- QueueLess Logo with green stopwatch icon -->
+      <a href="{{ url_for('home') }}" class="logo">
+        <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="QueueLess Logo" class="logo-icon">
+        <div class="logo-text-group">
+          <span class="logo-title">QueueLess</span>
+          <span class="logo-sub">Universal Smart Queue</span>
+        </div>
+      </a>
+
+      <!-- Primary Navigation Links -->
+      <ul class="nav-links">
+        <li><a href="{{ url_for('home') }}" data-i18n="nav_home">Home</a></li>
+        <li><a href="{{ url_for('institutions_directory') }}" data-i18n="nav_institutions">Institutions</a></li>
+        <li><a href="{{ url_for('track_token_page') }}" data-i18n="nav_track">Track Token</a></li>
+        <li><a href="{{ url_for('public_display_screen') }}" target="_blank" data-i18n="nav_display"><i class="fa-solid fa-tv" style="color: var(--emerald-green);"></i> TV Display</a></li>
+        <li><a href="{{ url_for('customer_dashboard') }}" data-i18n="nav_dashboard"><i class="fa-solid fa-user-check"></i> My Tokens</a></li>
+      </ul>
+
+      <!-- Action Buttons -->
+      <div class="nav-actions">
+        <a href="{{ url_for('book_token_page') }}" class="btn btn-primary btn-sm" data-i18n="nav_book">
+          <i class="fa-solid fa-ticket"></i> Book Token
+        </a>
+        <div class="dropdown-staff">
+          <button class="btn btn-secondary btn-sm" type="button">
+            <i class="fa-solid fa-shield-halved"></i> Portals <i class="fa-solid fa-chevron-down" style="font-size: 0.75rem;"></i>
+          </button>
+          <div class="dropdown-staff-menu">
+            <a href="{{ url_for('operator_dashboard') }}"><i class="fa-solid fa-desktop"></i> Operator Desk</a>
+            <a href="{{ url_for('admin_dashboard') }}"><i class="fa-solid fa-chart-pie"></i> Admin Analytics</a>
+            <a href="{{ url_for('public_display_screen') }}" target="_blank"><i class="fa-solid fa-display"></i> Waiting Room TV</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mobile Hamburger Toggle -->
+      <button class="nav-toggle" aria-label="Toggle navigation menu">
+        <i class="fa-solid fa-bars"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ==================================================================== -->
+  <!-- MAIN PAGE CONTENT BLOCK -->
+  <!-- ==================================================================== -->
+  <main>
+    {% block content %}
+    {% endblock %}
+  </main>
+
+  <!-- ==================================================================== -->
+  <!-- FOOTER -->
+  <!-- ==================================================================== -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-top">
+        <!-- Brand & Motto -->
+        <div class="footer-brand">
+          <div class="logo">
+            <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="QueueLess Logo" class="logo-icon">
+            <span style="color: #ffffff; font-weight: 800; font-size: 1.4rem;">QueueLess</span>
+          </div>
+          <p class="footer-motto">“Smart Queue. Happy You.”</p>
+          <p class="footer-desc">
+            Universal Smart Queue Management platform for Hospitals, Banks, Akshaya Centres, Colleges, Clinics, Railway Enquiries, and Public Offices.
+          </p>
+          <div style="display: flex; gap: 10px; margin-top: 14px;">
+            <span class="inst-badge" style="background: rgba(255,255,255,0.15); color: #a7f3d0;"><i class="fa-solid fa-qrcode"></i> QR Check-in</span>
+            <span class="inst-badge" style="background: rgba(255,255,255,0.15); color: #a7f3d0;"><i class="fa-solid fa-arrows-split-up-and-left"></i> Multi-Counter</span>
+            <span class="inst-badge" style="background: rgba(255,255,255,0.15); color: #a7f3d0;"><i class="fa-solid fa-language"></i> 3 Languages</span>
+          </div>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="footer-col">
+          <h4>Navigation</h4>
+          <ul class="footer-links">
+            <li><a href="{{ url_for('home') }}">Home</a></li>
+            <li><a href="{{ url_for('institutions_directory') }}">All Institutions</a></li>
+            <li><a href="{{ url_for('book_token_page') }}">Book Token</a></li>
+            <li><a href="{{ url_for('track_token_page') }}">Live Status Tracker</a></li>
+            <li><a href="{{ url_for('customer_dashboard') }}">Customer Dashboard</a></li>
+            <li><a href="{{ url_for('public_display_screen') }}" target="_blank">TV Public Display</a></li>
+          </ul>
+        </div>
+
+        <!-- Supported Institutions -->
+        <div class="footer-col">
+          <h4>Universal Sectors</h4>
+          <ul class="footer-links">
+            <li><a href="{{ url_for('institutions_directory', category='Hospital') }}">Hospitals & OPD</a></li>
+            <li><a href="{{ url_for('institutions_directory', category='Bank') }}">Commercial Banks</a></li>
+            <li><a href="{{ url_for('institutions_directory', category='Akshaya Centre') }}">Akshaya E-Kendras</a></li>
+            <li><a href="{{ url_for('institutions_directory', category='Clinic') }}">Family Health Clinics</a></li>
+            <li><a href="{{ url_for('institutions_directory', category='Railway Enquiry Centre') }}">Railway Enquiry & Booking</a></li>
+            <li><a href="{{ url_for('institutions_directory', category='College') }}">College Student Counters</a></li>
+          </ul>
+        </div>
+
+        <!-- Contact & Evaluation -->
+        <div class="footer-col" id="contact">
+          <h4>Evaluation & Portals</h4>
+          <ul class="footer-links">
+            <li><a href="{{ url_for('operator_dashboard') }}"><i class="fa-solid fa-desktop"></i> Operator Calling Workstation</a></li>
+            <li><a href="{{ url_for('admin_dashboard') }}"><i class="fa-solid fa-chart-line"></i> Admin Analytics Panel</a></li>
+            <li><a href="mailto:support@queueless.edu"><i class="fa-solid fa-envelope"></i> support@queueless.edu</a></li>
+            <li><a href="tel:+919876543210"><i class="fa-solid fa-phone"></i> +91 98765 43210</a></li>
+            <li><a href="#"><i class="fa-solid fa-award"></i> National Techno-Fest Demonstration 2026</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Copyright -->
+      <div class="footer-bottom">
+        <p>© 2026 QueueLess Universal Smart Queue Management System. All rights reserved.</p>
+        <div style="display: flex; gap: 14px; font-size: 0.85rem; color: #a7f3d0;">
+          <span>Zero Crowding</span> • <span>Dynamic Wait Estimation</span> • <span>Multi-Counter Safe</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container"></div>
+
+  <!-- Global Scripts -->
+  <script src="{{ url_for('static', filename='js/qrcode.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

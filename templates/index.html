@@ -1,0 +1,313 @@
+{% extends 'base.html' %}
+
+{% block title %}QueueLess - Universal Smart Queue Management System{% endblock %}
+
+{% block content %}
+<!-- ======================================================================== -->
+<!-- HERO SECTION WITH LIVE PREVIEWS & SEARCH -->
+<!-- ======================================================================== -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-grid">
+      <!-- LEFT SIDE: Text, Badges, Search & Quick Actions -->
+      <div class="hero-content">
+        <div class="hero-pill">
+          <span class="hero-pill-dot"></span>
+          <span data-i18n="hero_pill">Next-Gen Smart Token Ecosystem</span>
+        </div>
+
+        <h1 class="hero-title" data-i18n="hero_title">QueueLess</h1>
+        <h2 class="hero-subtitle" data-i18n="brand_tagline">One Platform. Every Queue.</h2>
+        <h3 class="hero-tagline" data-i18n="brand_subtitle">Skip the Wait. Save Your Time.</h3>
+        <p class="hero-desc" data-i18n="hero_desc">
+          Universal Smart Queue Management System for Hospitals, Banks, Akshaya Centres, Colleges, Clinics, Railway Enquiry and Government Offices.
+        </p>
+
+        <!-- Search Bar: Name, Category, Location -->
+        <div class="hero-search-card">
+          <form action="{{ url_for('institutions_directory') }}" method="GET" class="hero-search-form">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="text" name="q" class="hero-search-input" 
+                   placeholder="Search institutions by name, category, or location..." 
+                   data-i18n="search_placeholder">
+            <button type="submit" class="btn btn-primary">
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </form>
+        </div>
+
+        <!-- CTA Buttons -->
+        <div class="hero-cta-group">
+          <a href="{{ url_for('book_token_page') }}" class="btn btn-primary btn-lg" data-i18n="btn_get_started">
+            <i class="fa-solid fa-ticket"></i> Book Your Token
+          </a>
+          <a href="{{ url_for('track_token_page') }}" class="btn btn-secondary btn-lg" data-i18n="btn_track_token">
+            <i class="fa-solid fa-radar"></i> Track Live Status
+          </a>
+          <a href="{{ url_for('public_display_screen') }}" target="_blank" class="btn btn-outline btn-lg" style="color: #ffffff; border-color: #6ee7b7;">
+            <i class="fa-solid fa-tv"></i> TV Screen
+          </a>
+        </div>
+
+        <!-- Trust Badges -->
+        <div class="hero-trust-row">
+          <div class="trust-item">
+            <i class="fa-solid fa-qrcode"></i>
+            <span>QR Check-in</span>
+          </div>
+          <div class="trust-item">
+            <i class="fa-solid fa-stopwatch"></i>
+            <span>Smart Wait Estimation</span>
+          </div>
+          <div class="trust-item">
+            <i class="fa-solid fa-arrows-split-up-and-left"></i>
+            <span>Multi-Counter Safe</span>
+          </div>
+          <div class="trust-item">
+            <i class="fa-solid fa-calendar-check"></i>
+            <span>Appointment Booking</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT SIDE: Vector Art & Live Floating Queue Preview -->
+      <div class="hero-visual">
+        <div class="hero-illustration-wrapper">
+          <img src="{{ url_for('static', filename='images/hero-illustration.svg') }}" 
+               alt="Digital Token Kiosk and Service Centre Queue Management" 
+               class="hero-img">
+
+          <!-- Floating Live Token Card Preview -->
+          <div class="hero-floating-badge">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+              <span style="font-size: 0.76rem; font-weight: 700; color: var(--emerald-green); text-transform: uppercase;">NOW SERVING</span>
+              <span class="live-pulse-dot" style="background-color: #10b981;"></span>
+            </div>
+            <div style="font-size: 1.6rem; font-weight: 900; color: var(--dark-green); letter-spacing: 0.5px;">HOSP-102</div>
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">
+              <i class="fa-solid fa-desktop"></i> Counter 01 • OPD Consultation
+            </div>
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-grey); display: flex; justify-content: space-between; font-size: 0.78rem;">
+              <span style="color: var(--text-muted);">Next: <strong>HOSP-103</strong></span>
+              <span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-clock"></i> ~3 mins</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================================== -->
+<!-- LIVE QUEUE STATS STRIP -->
+<!-- ======================================================================== -->
+<section class="container" style="margin-top: -30px; position: relative; z-index: 10;">
+  <div class="stats-bar">
+    <div class="stats-grid">
+      <div class="stat-box">
+        <div class="stat-num" id="homeStatTotal">{{ stats.total }}</div>
+        <div class="stat-label" data-i18n="stats_total">Total Tokens Today</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num" id="homeStatServing" style="color: #34d399;">{{ stats.serving }}</div>
+        <div class="stat-label" data-i18n="stats_serving">Currently Serving</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num" id="homeStatWaiting" style="color: #fde047;">{{ stats.waiting }}</div>
+        <div class="stat-label" data-i18n="stats_waiting">Waiting in Queue</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num" id="homeStatCompleted" style="color: #93c5fd;">{{ stats.completed }}</div>
+        <div class="stat-label" data-i18n="stats_completed">Served & Completed</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================================== -->
+<!-- UNIVERSAL INSTITUTION SELECTION -->
+<!-- ======================================================================== -->
+<section class="institutions-section" id="institutions">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-badge">Universal Selection</span>
+      <h2 class="section-title" data-i18n="choose_institution_title">Universal Institution Selection</h2>
+      <p class="section-subtitle" data-i18n="choose_institution_subtitle">
+        Select a category below to explore branches, view active counters, check live estimated waiting times, and book your token.
+      </p>
+
+      <!-- Category Filter Pills -->
+      <div class="category-pills-row" style="margin-top: 20px;">
+        <button type="button" class="cat-pill active" onclick="filterInstitutionCards('all')">All Institutions</button>
+        <button type="button" class="cat-pill" onclick="filterInstitutionCards('Hospital')"><i class="fa-solid fa-hospital"></i> Hospitals</button>
+        <button type="button" class="cat-pill" onclick="filterInstitutionCards('Bank')"><i class="fa-solid fa-building-columns"></i> Banks</button>
+        <button type="button" class="cat-pill" onclick="filterInstitutionCards('Akshaya Centre')"><i class="fa-solid fa-laptop-code"></i> Akshaya Centres</button>
+        <button type="button" class="cat-pill" onclick="filterInstitutionCards('Clinic')"><i class="fa-solid fa-stethoscope"></i> Clinics</button>
+        <button type="button" class="cat-pill" onclick="filterInstitutionCards('Railway Enquiry Centre')"><i class="fa-solid fa-train"></i> Railway Enquiry</button>
+        <button type="button" class="cat-pill" onclick="filterInstitutionCards('College')"><i class="fa-solid fa-graduation-cap"></i> Colleges</button>
+        <button type="button" class="cat-pill" onclick="filterInstitutionCards('Government Office')"><i class="fa-solid fa-landmark"></i> Government Offices</button>
+        <button type="button" class="cat-pill" onclick="filterInstitutionCards('Customer Service Centre')"><i class="fa-solid fa-headset"></i> Service Centres</button>
+      </div>
+    </div>
+
+    <!-- 8 Universal Cards Grid -->
+    <div class="cards-grid" id="institutionsCardsGrid">
+      {% for inst in institutions %}
+      <div class="inst-card card-{{ inst.category|lower|replace(' ', '-') }}" data-category="{{ inst.category }}">
+        <div class="inst-icon-wrap">
+          <i class="fa-solid {{ inst.icon }}"></i>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <span class="inst-category-tag">{{ inst.category }}</span>
+          <span class="inst-status-tag"><i class="fa-solid fa-circle-dot" style="color: #10b981; font-size: 0.65rem;"></i> Open Now</span>
+        </div>
+        <h3 class="inst-title">{{ inst.name }}</h3>
+        <p class="inst-desc">{{ inst.description }}</p>
+        
+        <div class="inst-meta-strip">
+          <span><i class="fa-solid fa-code-branch"></i> {{ inst.branch_count }} Authorized Branches</span>
+          <span><i class="fa-solid fa-desktop"></i> Multi-Counter</span>
+        </div>
+
+        <div class="inst-card-footer">
+          <a href="{{ url_for('book_token_page', institution_id=inst.id) }}" class="btn btn-primary btn-sm" style="width: 100%; text-align: center;">
+            <i class="fa-solid fa-ticket"></i> Book Token Now
+          </a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================================== -->
+<!-- 10 SPECIAL TECHNO-FEST FEATURES HIGHLIGHT -->
+<!-- ======================================================================== -->
+<section class="features-section" id="features">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-badge">Techno-Fest Demonstration</span>
+      <h2 class="section-title">10 Core Smart Features</h2>
+      <p class="section-subtitle">
+        Everything required for a national-level exhibition demonstration is fully implemented with real database backing.
+      </p>
+    </div>
+
+    <div class="features-10-grid">
+      <!-- 1. QR Check-in -->
+      <div class="feature-box">
+        <div class="feature-icon"><i class="fa-solid fa-qrcode"></i></div>
+        <h4>1. QR Check-in</h4>
+        <p>Dynamic QR Code generated for every token. Staff scan QR codes upon arrival to confirm attendance.</p>
+      </div>
+
+      <!-- 2. Multiple Counters -->
+      <div class="feature-box">
+        <div class="feature-icon"><i class="fa-solid fa-arrows-split-up-and-left"></i></div>
+        <h4>2. Multiple Counters</h4>
+        <p>Multiple service desks (Counter 1, 2, 3...) run concurrently without duplicate token collisions.</p>
+      </div>
+
+      <!-- 3. Smart Wait Estimation -->
+      <div class="feature-box">
+        <div class="feature-icon"><i class="fa-solid fa-stopwatch"></i></div>
+        <h4>3. Smart Wait Estimation</h4>
+        <p>Calculates dynamic wait time: <code>(people_ahead × avg_duration) ÷ active_counters</code>.</p>
+      </div>
+
+      <!-- 4. Token Cancellation -->
+      <div class="feature-box">
+        <div class="feature-icon"><i class="fa-solid fa-ban"></i></div>
+        <h4>4. Token Cancellation</h4>
+        <p>Citizens can cancel tokens anytime from mobile. Automatically re-balances remaining wait times.</p>
+      </div>
+
+      <!-- 5. Feedback & Rating -->
+      <div class="feature-box">
+        <div class="feature-icon"><i class="fa-solid fa-star"></i></div>
+        <h4>5. Feedback & Rating</h4>
+        <p>Post-service 1–5 star ratings and reviews help administration monitor counter quality.</p>
+      </div>
+
+      <!-- 6. Multilingual UI -->
+      <div class="feature-box">
+        <div class="feature-icon"><i class="fa-solid fa-language"></i></div>
+        <h4>6. Multilingual UI</h4>
+        <p>Instant toggle between English, Malayalam (മലയാളം), and Hindi (हिन्दी) with voice announcements.</p>
+      </div>
+
+      <!-- 7. Accessibility -->
+      <div class="feature-box">
+        <div class="feature-icon"><i class="fa-solid fa-universal-access"></i></div>
+        <h4>7. Accessibility</h4>
+        <p>High contrast mode, font size scalers (A, A+, A++), and screen-reader friendly design.</p>
+      </div>
+
+      <!-- 8. Display Screen -->
+      <div class="feature-box">
+        <div class="feature-icon"><i class="fa-solid fa-tv"></i></div>
+        <h4>8. Public TV Display</h4>
+        <p>High-visibility full-screen waiting room board with flashing alerts and live queue ticker.</p>
+      </div>
+
+      <!-- 9. Appointment Booking -->
+      <div class="feature-box">
+        <div class="feature-icon"><i class="fa-solid fa-calendar-check"></i></div>
+        <h4>9. Appointment Booking</h4>
+        <p>Choose between instant walk-in token or schedule specific time slot for today/tomorrow.</p>
+      </div>
+
+      <!-- 10. Search Institution -->
+      <div class="feature-box">
+        <div class="feature-icon"><i class="fa-solid fa-magnifying-glass-location"></i></div>
+        <h4>10. Search Institution</h4>
+        <p>Instant search by institution name, category, or branch location across all 8 sectors.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================================== -->
+<!-- QUICK TOKEN CHECK STRIP -->
+<!-- ======================================================================== -->
+<section style="padding: 50px 0; background: var(--mint-bg); border-top: 1px solid var(--mint-border); border-bottom: 1px solid var(--mint-border);">
+  <div class="container">
+    <div style="max-width: 680px; margin: 0 auto; text-align: center;">
+      <h3 style="font-size: 1.5rem; font-weight: 800; color: var(--dark-green); margin-bottom: 8px;">
+        <i class="fa-solid fa-ticket"></i> Already Have a Queue Token?
+      </h3>
+      <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 20px;">
+        Check your live position, people ahead, and listen to voice calls right now.
+      </p>
+      <form action="{{ url_for('track_token_page') }}" method="GET" style="display: flex; gap: 10px; max-width: 500px; margin: 0 auto;">
+        <input type="text" name="token" class="form-control" placeholder="Enter Token ID (e.g. HOSP-102)" required style="text-transform: uppercase;">
+        <button type="submit" class="btn btn-primary" style="white-space: nowrap;">
+          <i class="fa-solid fa-radar"></i> Track Live
+        </button>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterInstitutionCards(category) {
+  // Update active pill styling
+  document.querySelectorAll('.cat-pill').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  event.target.classList.add('active');
+
+  // Filter cards
+  const cards = document.querySelectorAll('.inst-card');
+  cards.forEach(card => {
+    if (category === 'all' || card.getAttribute('data-category') === category) {
+      card.style.display = 'flex';
+    } else {
+      card.style.display = 'none';
+    }
+  });
+}
+</script>
+{% endblock %}

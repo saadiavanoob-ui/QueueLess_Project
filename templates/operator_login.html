@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% block title %}Operator Workstation Login - QueueLess{% endblock %}
+
+{% block content %}
+<section style="padding: 70px 0 90px; background: linear-gradient(180deg, #f0fdf4 0%, var(--light-grey) 100%);">
+  <div class="container">
+    <div style="max-width: 440px; margin: 0 auto;">
+      
+      <div class="form-card" style="box-shadow: var(--shadow-lg);">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <div style="width: 56px; height: 56px; border-radius: 16px; background-color: var(--mint-bg); color: var(--emerald-green); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin: 0 auto 12px;">
+            <i class="fa-solid fa-desktop"></i>
+          </div>
+          <h2 style="font-size: 1.6rem; font-weight: 800; color: var(--dark-green);">Counter Staff Login</h2>
+          <p style="font-size: 0.9rem; color: var(--text-muted);">
+            Operator calling console, QR scanner & queue controller
+          </p>
+        </div>
+
+        {% if error %}
+        <div style="background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: 8px; font-size: 0.88rem; margin-bottom: 18px;">
+          <i class="fa-solid fa-circle-exclamation"></i> {{ error }}
+        </div>
+        {% endif %}
+
+        <form action="{{ url_for('operator_login') }}" method="POST">
+          <div class="form-group">
+            <label class="form-label" for="username">Operator Username</label>
+            <input type="text" id="username" name="username" class="form-control" placeholder="operator" value="operator" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="password">Password</label>
+            <input type="password" id="password" name="password" class="form-control" placeholder="••••••••" value="op123" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="counter">Select Assigned Counter</label>
+            <select id="counter" name="counter" class="form-select">
+              <option value="1">Counter 01 (General)</option>
+              <option value="2">Counter 02 (Cash / Fast Track)</option>
+              <option value="3">Counter 03 (Senior & Priority)</option>
+              <option value="4">Counter 04 (Inquiries)</option>
+            </select>
+          </div>
+
+          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 8px;">
+            <i class="fa-solid fa-right-to-bracket"></i> Login to Console
+          </button>
+        </form>
+
+        <div style="margin-top: 24px; padding: 12px; background: var(--mint-bg); border-radius: 8px; text-align: center; font-size: 0.82rem; color: var(--dark-green);">
+          <strong>🎓 Exhibition Demo Operator:</strong> Username: <code>operator</code> | Password: <code>op123</code>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+{% endblock %}

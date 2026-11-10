@@ -1,0 +1,241 @@
+{% extends 'base.html' %}
+
+{% block title %}Track Live Token Status - QueueLess{% endblock %}
+
+{% block content %}
+<section class="tracker-section">
+  <div class="container">
+    <!-- Header -->
+    <div style="text-align: center; margin-bottom: 30px;">
+      <span class="section-badge">Live Real-time Queue Feed</span>
+      <h1 class="section-title">Track Your Token Status</h1>
+      <p class="section-subtitle">
+        Monitor your live position in queue, people ahead, active counter alerts, and estimated waiting time.
+      </p>
+    </div>
+
+    <!-- Search Box -->
+    <div class="search-box-wrap">
+      <form id="trackSearchForm" class="search-input-group">
+        <i class="fa-solid fa-magnifying-glass" style="align-self: center; margin-left: 14px; color: var(--emerald-green); font-size: 1.2rem;"></i>
+        <input type="text" id="trackTokenInput" class="search-input" 
+               placeholder="Enter token number (e.g. HOSP-102)" 
+               value="{{ initial_token }}" required style="text-transform: uppercase;">
+        <button type="submit" class="btn btn-primary" style="border-radius: var(--radius-md);">
+          <i class="fa-solid fa-radar"></i> Check Status
+        </button>
+      </form>
+
+      <!-- Quick Demo Tokens for Evaluators -->
+      <div style="text-align: center; margin-top: 14px; font-size: 0.88rem; color: var(--text-muted);">
+        <span>Try sample demo tokens: </span>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="fetchTokenStatus('HOSP-102')" style="padding: 2px 10px; margin: 0 4px;">HOSP-102 (Serving)</button>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="fetchTokenStatus('HOSP-103')" style="padding: 2px 10px; margin: 0 4px;">HOSP-103 (Waiting)</button>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="fetchTokenStatus('BANK-101')" style="padding: 2px 10px; margin: 0 4px;">BANK-101 (Bank)</button>
+      </div>
+    </div>
+
+    <!-- 1. Initial State (No token searched yet) -->
+    <div id="trackerWelcome" style="text-align: center; padding: 60px 20px; background: var(--white); border-radius: var(--radius-xl); border: 1px dashed var(--border-grey); max-width: 680px; margin: 0 auto; {% if initial_token %}display: none;{% endif %}">
+      <div style="width: 72px; height: 72px; border-radius: 50%; background: var(--mint-bg); color: var(--emerald-green); display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 16px;">
+        <i class="fa-solid fa-ticket"></i>
+      </div>
+      <h3 style="color: var(--dark-green); font-size: 1.35rem; margin-bottom: 8px;">Waiting for your token number</h3>
+      <p style="color: var(--text-muted); font-size: 0.95rem; max-width: 440px; margin: 0 auto 20px;">
+        Booked a token already? Type it above or book a brand new token right now.
+      </p>
+      <a href="{{ url_for('book_token_page') }}" class="btn btn-primary btn-sm">
+        <i class="fa-solid fa-plus"></i> Book a New Token
+      </a>
+    </div>
+
+    <!-- 2. Not Found Error State -->
+    <div id="trackerNotFound" style="display: none; text-align: center; padding: 50px 20px; background: #fef2f2; border-radius: var(--radius-xl); border: 1.5px solid #fecaca; max-width: 680px; margin: 0 auto;">
+      <i class="fa-solid fa-triangle-exclamation" style="font-size: 2.5rem; color: var(--hospital-red); margin-bottom: 12px;"></i>
+      <h3 style="color: #991b1b; font-size: 1.25rem; margin-bottom: 8px;">Token Not Found</h3>
+      <p id="notFoundMsg" style="color: #b91c1c; font-size: 0.94rem; margin-bottom: 18px;"></p>
+      <a href="{{ url_for('book_token_page') }}" class="btn btn-secondary btn-sm">Book Token Instead</a>
+    </div>
+
+    <!-- 3. Active Live Token Status Results Card -->
+    <div id="trackerResultsContainer" style="display: none;">
+      <div class="tracker-card">
+        <!-- Tracker Card Header -->
+        <div class="tracker-card-header">
+          <div class="tracker-token-info">
+            <span style="font-size: 0.82rem; font-weight: 700; color: #a7f3d0; text-transform: uppercase; letter-spacing: 1px;" data-i18n="token_id_label">TOKEN ID</span>
+            <h2 id="dispTokenNumber" style="font-size: 2.6rem; letter-spacing: 1px;">HOSP-103</h2>
+            <p style="font-size: 0.95rem; color: #d1fae5; margin-top: 4px;">
+              <span id="dispCustomerName">Rahul</span> • <span id="dispInstitution">City Care Healthcare Network</span>
+            </p>
+            <div style="margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <span id="dispBranchBadge" class="inst-badge" style="background: rgba(255,255,255,0.2); color: #ffffff;">Main Campus</span>
+              <span id="dispPriorityBadge" class="inst-badge" style="background: #fef3c7; color: #b45309;">Regular</span>
+              <span id="dispCheckinBadge" class="inst-badge" style="background: #e0f2fe; color: #0369a1;">
+                <i class="fa-solid fa-qrcode"></i> Check-in Confirmed
+              </span>
+            </div>
+          </div>
+
+          <div style="text-align: right;">
+            <div id="dispStatusBadge" class="tracker-badge badge-waiting">
+              <i class="fa-solid fa-circle-dot"></i> WAITING
+            </div>
+            <div style="font-size: 0.8rem; color: #a7f3d0; margin-top: 8px;">
+              <i class="fa-solid fa-arrows-rotate fa-spin"></i> Live auto-refresh active
+            </div>
+            <!-- Browser Notification Enable Button -->
+            <button type="button" id="enableNotificationsBtn" class="btn btn-sm btn-secondary" onclick="requestNotificationPermission()" style="margin-top: 10px; font-size: 0.78rem; padding: 4px 10px;">
+              <i class="fa-solid fa-bell"></i> Enable Audio & Turn Alerts
+            </button>
+          </div>
+        </div>
+
+        <!-- 4-Stage Queue Progress Stepper -->
+        <div class="queue-stepper">
+          <div class="stepper-bar-fill"></div>
+
+          <!-- Step 1: Booked -->
+          <div class="step-node completed" id="stepBooked">
+            <div class="step-circle"><i class="fa-solid fa-check"></i></div>
+            <span class="step-label">1. Token Issued</span>
+          </div>
+
+          <!-- Step 2: Waiting in Line -->
+          <div class="step-node active" id="stepWaiting">
+            <div class="step-circle"><i class="fa-solid fa-user-clock"></i></div>
+            <span class="step-label">2. In Queue</span>
+          </div>
+
+          <!-- Step 3: Now Calling / Serving -->
+          <div class="step-node" id="stepServing">
+            <div class="step-circle"><i class="fa-solid fa-bell"></i></div>
+            <span class="step-label">3. At Counter</span>
+          </div>
+
+          <!-- Step 4: Completed -->
+          <div class="step-node" id="stepCompleted">
+            <div class="step-circle"><i class="fa-solid fa-flag-checkered"></i></div>
+            <span class="step-label">4. Completed</span>
+          </div>
+        </div>
+
+        <!-- 3 Prominent Metrics Cards (People Ahead, Wait Time, Current Serving) -->
+        <div class="metrics-row">
+          <!-- People Ahead -->
+          <div class="metric-card highlight">
+            <i class="fa-solid fa-users"></i>
+            <div class="metric-val" id="dispPeopleAhead">0</div>
+            <div class="metric-label" data-i18n="people_ahead_label">People Ahead in Line</div>
+          </div>
+
+          <!-- Estimated Wait Time -->
+          <div class="metric-card">
+            <i class="fa-solid fa-stopwatch"></i>
+            <div class="metric-val" id="dispWaitTime">~0 mins</div>
+            <div class="metric-label" data-i18n="est_wait_label">Smart Estimated Wait Time</div>
+            <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 4px;" id="dispCountersCount">
+              (Calculated across 4 open counters)
+            </small>
+          </div>
+
+          <!-- Current Serving Token -->
+          <div class="metric-card">
+            <i class="fa-solid fa-bullhorn"></i>
+            <div class="metric-val" id="dispCurrentServing" style="font-family: monospace; font-size: 1.8rem;">-</div>
+            <div class="metric-label" data-i18n="current_serving_label">Current Serving Token</div>
+          </div>
+        </div>
+
+        <!-- QR Code & Details Row -->
+        <div style="padding: 24px 30px; background: #ffffff; border-top: 1px solid var(--border-grey); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+          <!-- QR Pass Widget -->
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div id="trackerQrContainer" style="padding: 8px; background: #ffffff; border: 1.5px solid var(--border-grey); border-radius: 12px; width: 100px; height: 100px; display: flex; align-items: center; justify-content: center;"></div>
+            <div>
+              <span style="font-size: 0.78rem; font-weight: 700; color: var(--emerald-green); text-transform: uppercase;">ARRIVAL QR CODE</span>
+              <div style="font-family: monospace; font-size: 1.1rem; font-weight: 800; color: var(--dark-green);" id="dispVerifyCode">QL-4921</div>
+              <small style="color: var(--text-muted); display: block; max-width: 260px; font-size: 0.8rem; margin-top: 2px;">
+                Show this QR code at the counter or scan at the entrance to confirm arrival.
+              </small>
+            </div>
+          </div>
+
+          <!-- Service Department & Action Buttons -->
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 10px;">
+            <div style="text-align: right;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); display: block;">Assigned Department</span>
+              <strong style="color: var(--dark-green); font-size: 1.1rem;" id="dispService">-</strong>
+            </div>
+
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="fetchTokenStatus(activeTrackingToken)">
+                <i class="fa-solid fa-rotate-right"></i> Refresh
+              </button>
+              
+              <!-- Cancel Token Button -->
+              <button type="button" id="btnCancelToken" class="btn btn-outline btn-sm" onclick="promptCancelToken()" style="color: var(--hospital-red); border-color: #fca5a5;">
+                <i class="fa-solid fa-ban"></i> Cancel Token
+              </button>
+
+              <!-- Feedback Button (Shown when completed) -->
+              <button type="button" id="btnFeedbackModal" class="btn btn-primary btn-sm" onclick="openFeedbackModal()" style="display: none; background: #f59e0b; border-color: #d97706;">
+                <i class="fa-solid fa-star"></i> Rate Service
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ======================================================================== -->
+<!-- FEEDBACK & RATING MODAL (Feature #5) -->
+<!-- ======================================================================== -->
+<div class="modal-overlay" id="feedbackModal">
+  <div class="form-card" style="max-width: 440px; margin: 0 auto; box-shadow: var(--shadow-lg);">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <div style="width: 56px; height: 56px; border-radius: 50%; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; margin: 0 auto 12px;">
+        <i class="fa-solid fa-star"></i>
+      </div>
+      <h3 style="color: var(--dark-green); font-size: 1.4rem; font-weight: 800;">Rate Your Service Experience</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem;">
+        How was your queue experience at <span id="feedbackInstName">the counter</span>?
+      </p>
+    </div>
+
+    <form id="feedbackForm" onsubmit="submitCustomerFeedback(event)">
+      <!-- Star Rating Input -->
+      <div style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;" id="starRatingGroup">
+        <i class="fa-solid fa-star star-btn active" data-rating="1" onclick="setRating(1)"></i>
+        <i class="fa-solid fa-star star-btn active" data-rating="2" onclick="setRating(2)"></i>
+        <i class="fa-solid fa-star star-btn active" data-rating="3" onclick="setRating(3)"></i>
+        <i class="fa-solid fa-star star-btn active" data-rating="4" onclick="setRating(4)"></i>
+        <i class="fa-solid fa-star star-btn active" data-rating="5" onclick="setRating(5)"></i>
+      </div>
+      <input type="hidden" id="selectedRatingVal" value="5">
+
+      <div class="form-group">
+        <label class="form-label" for="feedbackComment">Your Comments / Suggestions</label>
+        <textarea id="feedbackComment" class="form-control" rows="3" placeholder="Share your experience (e.g. quick service, courteous staff)..."></textarea>
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-top: 14px;">
+        <button type="submit" class="btn btn-primary" style="flex: 1;">
+          <i class="fa-solid fa-paper-plane"></i> Submit Feedback
+        </button>
+        <button type="button" class="btn btn-outline" onclick="closeFeedbackModal()" style="flex: 1;">
+          Close
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/tracking.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,483 @@
+{% extends 'base.html' %}
+
+{% block title %}Operator Workstation - QueueLess{% endblock %}
+
+{% block content %}
+<section class="admin-section">
+  <div class="container">
+    
+    <!-- Operator Top Header Row -->
+    <div class="admin-header-row">
+      <div>
+        <span class="section-badge" style="background-color: #dbeafe; color: #1d4ed8;">Counter Service Console</span>
+        <h1 style="font-size: 2rem; font-weight: 800; color: var(--dark-green);">Operator Queue Calling Desk</h1>
+        <p style="color: var(--text-muted); font-size: 0.94rem;">
+          Welcome, <strong>{{ operator_name }}</strong>. Control calling progression, multi-counter allocation, and QR arrivals.
+        </p>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <!-- Workstation Counter Selector -->
+        <div style="display: flex; align-items: center; gap: 8px; background: var(--white); padding: 6px 14px; border-radius: var(--radius-md); border: 1.5px solid var(--border-grey);">
+          <label for="operatorCounterSelect" style="font-size: 0.86rem; font-weight: 700; color: var(--text-muted);">
+            <i class="fa-solid fa-desktop" style="color: var(--emerald-green);"></i> Workstation:
+          </label>
+          <select id="operatorCounterSelect" style="border: none; outline: none; font-weight: 800; color: var(--dark-green); background: transparent; cursor: pointer;">
+            <option value="1" {% if counter_number == 1 %}selected{% endif %}>Counter 01 (General)</option>
+            <option value="2" {% if counter_number == 2 %}selected{% endif %}>Counter 02 (Cash / Fast Track)</option>
+            <option value="3" {% if counter_number == 3 %}selected{% endif %}>Counter 03 (Senior & Priority)</option>
+            <option value="4" {% if counter_number == 4 %}selected{% endif %}>Counter 04 (Inquiries)</option>
+          </select>
+        </div>
+
+        <!-- Counter Status (Open / Break / Closed) -->
+        <select id="operatorCounterStatusSelect" onchange="toggleCounterWorkStatus(this.value)" style="background: #ecfdf5; color: #047857; border: 1.5px solid #a7f3d0; padding: 7px 12px; border-radius: 8px; font-weight: 700; font-size: 0.86rem; cursor: pointer;">
+          <option value="open">🟢 Counter Open</option>
+          <option value="break">🟡 On Break</option>
+          <option value="closed">🔴 Counter Closed</option>
+        </select>
+
+        <a href="{{ url_for('operator_logout') }}" class="btn btn-outline btn-sm" style="color: var(--hospital-red); border-color: #fca5a5;">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </a>
+      </div>
+    </div>
+
+    <!-- Quick Tools Row: QR Check-in Verification & Manual Walk-in Issuance -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 24px;" class="customer-info-grid">
+      <!-- 1. QR Check-in Verification Box (Feature #1) -->
+      <div class="form-card" style="padding: 18px; background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);">
+        <h4 style="color: var(--dark-green); font-size: 1.1rem; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+          <i class="fa-solid fa-qrcode" style="color: var(--emerald-green);"></i> QR Code Check-in Verification
+        </h4>
+        <p style="color: var(--text-muted); font-size: 0.84rem; margin-bottom: 12px;">
+          Confirm citizen arrival by entering their 6-char verification code or token ID.
+        </p>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="checkinCodeInput" class="form-control" placeholder="e.g. QK-8103 or HOSP-103" style="text-transform: uppercase;">
+          <button type="button" class="btn btn-primary" onclick="verifyCustomerCheckin()" style="white-space: nowrap;">
+            <i class="fa-solid fa-check"></i> Check In
+          </button>
+        </div>
+      </div>
+
+      <!-- 2. Manual / Walk-in Token Issuance (Feature #13) -->
+      <div class="form-card" style="padding: 18px; background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);">
+        <h4 style="color: #1e3a8a; font-size: 1.1rem; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+          <i class="fa-solid fa-ticket" style="color: #2563eb;"></i> Quick Walk-in Token Issuance
+        </h4>
+        <p style="color: var(--text-muted); font-size: 0.84rem; margin-bottom: 12px;">
+          Issue an instant queue token for elderly citizens or visitors without smartphones.
+        </p>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="walkinNameInput" class="form-control" placeholder="Customer Name (e.g. Walk-in Visitor)">
+          <button type="button" class="btn btn-secondary" onclick="issueWalkinToken()" style="white-space: nowrap;">
+            <i class="fa-solid fa-print"></i> Issue Token
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Serving Token Banner (With Multi-Action Controls) -->
+    <div class="admin-call-card">
+      <div class="call-card-info">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+          <span id="currentServingCounterBadge" class="tracker-badge badge-serving" style="padding: 4px 10px; font-size: 0.8rem;">
+            COUNTER 01
+          </span>
+          <span style="color: #a7f3d0; font-size: 0.85rem; font-weight: 600;">ACTIVE DESK CONSOLE</span>
+          <span id="queuePauseIndicator" class="inst-badge" style="display: none; background: #fef08a; color: #854d0e;">
+            <i class="fa-solid fa-pause"></i> Queue Paused
+          </span>
+        </div>
+        <div class="call-card-token" id="currentServingTokenNumber">STANDBY</div>
+        <div id="currentServingCustomer" style="color: #d1fae5; font-size: 1rem; margin-top: 2px;">
+          Click "Call Next Token" to begin serving the waiting queue.
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="call-card-controls">
+        <button type="button" id="operatorCallNextBtn" class="btn btn-primary btn-lg" style="background-color: #10b981; color: #022c22; font-weight: 900; border: none;">
+          <i class="fa-solid fa-bullhorn"></i> Call Next Token
+        </button>
+
+        <button type="button" id="operatorCompleteBtn" class="btn btn-secondary btn-lg" style="background-color: #ffffff; color: var(--dark-green); display: none;">
+          <i class="fa-solid fa-check"></i> Complete
+        </button>
+
+        <button type="button" id="operatorRecallBtn" class="btn btn-outline btn-lg" style="color: #ffffff; border-color: #6ee7b7; display: none;" title="Repeat Voice Chime">
+          <i class="fa-solid fa-volume-high"></i> Recall
+        </button>
+
+        <button type="button" id="operatorSkipBtn" class="btn btn-outline btn-lg" style="color: #fca5a5; border-color: #f87171; display: none;" title="Skip Customer">
+          <i class="fa-solid fa-forward"></i> Skip
+        </button>
+
+        <button type="button" id="operatorPauseBtn" class="btn btn-outline btn-sm" onclick="togglePauseQueue()" style="color: #ffffff; border-color: rgba(255,255,255,0.4);">
+          <i class="fa-solid fa-pause"></i> Pause Queue
+        </button>
+      </div>
+    </div>
+
+    <!-- Tokens Table & Filters Card -->
+    <div class="table-card">
+      <div class="table-header-bar">
+        <div>
+          <h3 style="font-size: 1.2rem; font-weight: 800; color: var(--dark-green);">Waiting Queue Directory</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">Real-time multi-counter waiting records & priority badges</p>
+        </div>
+
+        <!-- Filter Controls -->
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <select id="operatorFilterStatus" class="form-select" style="width: auto; padding: 7px 12px; font-size: 0.88rem;" onchange="loadOperatorTokens()">
+            <option value="all">All Statuses</option>
+            <option value="waiting" selected>Waiting Only</option>
+            <option value="serving">Serving Only</option>
+            <option value="skipped">Skipped Only</option>
+            <option value="completed">Completed Only</option>
+          </select>
+
+          <button type="button" class="btn btn-secondary btn-sm" onclick="loadOperatorTokens()" title="Refresh Queue">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Data Table -->
+      <div class="table-responsive">
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Token ID</th>
+              <th>Customer</th>
+              <th>Priority</th>
+              <th>Check-in</th>
+              <th>Department</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="operatorTokensTbody">
+            <tr>
+              <td colspan="7" style="text-align: center; padding: 26px; color: var(--text-muted);">
+                <i class="fa-solid fa-spinner fa-spin"></i> Loading live queue...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+<script>
+let currentActiveToken = null;
+let isQueuePaused = false;
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadOperatorTokens();
+
+    const callNextBtn = document.getElementById('operatorCallNextBtn');
+    if (callNextBtn) callNextBtn.addEventListener('click', callNextOperatorToken);
+
+    const completeBtn = document.getElementById('operatorCompleteBtn');
+    if (completeBtn) completeBtn.addEventListener('click', completeCurrentOperatorToken);
+
+    const recallBtn = document.getElementById('operatorRecallBtn');
+    if (recallBtn) recallBtn.addEventListener('click', recallCurrentOperatorToken);
+
+    const skipBtn = document.getElementById('operatorSkipBtn');
+    if (skipBtn) skipBtn.addEventListener('click', skipCurrentOperatorToken);
+});
+
+async function loadOperatorTokens() {
+    const statusVal = document.getElementById('operatorFilterStatus').value;
+    try {
+        const res = await fetch(`/api/tokens?status=${encodeURIComponent(statusVal)}`);
+        const data = await res.json();
+        if (data.success) {
+            renderOperatorTable(data.tokens);
+            updateOperatorServingCard(data.tokens);
+        }
+    } catch (err) {
+        console.error('Failed to load operator tokens:', err);
+    }
+}
+
+function renderOperatorTable(tokens) {
+    const tbody = document.getElementById('operatorTokensTbody');
+    if (!tbody) return;
+
+    if (!tokens || tokens.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                    <i class="fa-solid fa-inbox" style="font-size: 2rem; margin-bottom: 8px; display: block;"></i>
+                    No tokens currently in this queue view.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = tokens.map(t => {
+        let pColor = '#ecfdf5';
+        let pText = '#047857';
+        if (t.priority === 'emergency') { pColor = '#fee2e2'; pText = '#dc2626'; }
+        else if (t.priority === 'senior') { pColor = '#fef3c7'; pText = '#b45309'; }
+        else if (t.priority === 'pwd') { pColor = '#e0f2fe'; pText = '#0284c7'; }
+        else if (t.priority === 'pregnant') { pColor = '#fce7f3'; pText = '#be185d'; }
+
+        return `
+            <tr>
+                <td class="token-cell">${t.token_number}</td>
+                <td>
+                    <strong>${t.customer_name}</strong><br>
+                    <small style="color: var(--text-muted);"><i class="fa-solid fa-phone"></i> ${t.phone}</small>
+                </td>
+                <td>
+                    <span class="inst-badge" style="background: ${pColor}; color: ${pText}; font-weight: 700;">
+                        ${(t.priority || 'regular').toUpperCase()}
+                    </span>
+                </td>
+                <td>
+                    ${t.checkin_status === 'checked_in' ? `
+                        <span style="color: #16a34a; font-weight: 700; font-size: 0.8rem;"><i class="fa-solid fa-check-circle"></i> Arrived</span>
+                    ` : `
+                        <span style="color: #b45309; font-weight: 600; font-size: 0.8rem;"><i class="fa-solid fa-clock"></i> Pending</span>
+                    `}
+                </td>
+                <td><span class="inst-badge">${t.service_name}</span></td>
+                <td>
+                    <span class="tracker-badge badge-${t.status}" style="padding: 3px 8px; font-size: 0.75rem;">
+                        ${t.status.toUpperCase()}
+                    </span>
+                </td>
+                <td>
+                    <div style="display: flex; gap: 6px;">
+                        ${t.status === 'waiting' || t.status === 'skipped' ? `
+                            <button class="btn btn-sm btn-primary" onclick="recallSpecificToken(${t.id})" title="Call to Counter">
+                                <i class="fa-solid fa-bullhorn"></i> Call
+                            </button>
+                        ` : ''}
+                        ${t.status === 'serving' ? `
+                            <button class="btn btn-sm btn-secondary" onclick="completeSpecificToken(${t.id})" title="Complete Service">
+                                <i class="fa-solid fa-check"></i> Done
+                            </button>
+                        ` : ''}
+                        ${t.status === 'waiting' ? `
+                            <button class="btn btn-sm btn-outline" style="color: #ea580c; border-color: #fdba74;" onclick="skipSpecificToken(${t.id})" title="Skip">
+                                <i class="fa-solid fa-forward"></i>
+                            </button>
+                        ` : ''}
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function updateOperatorServingCard(tokens) {
+    const counter = document.getElementById('operatorCounterSelect').value;
+    const serving = tokens.find(t => t.status === 'serving' && t.counter_number == counter);
+    currentActiveToken = serving || null;
+
+    const tokenDisplay = document.getElementById('currentServingTokenNumber');
+    const customerDisplay = document.getElementById('currentServingCustomer');
+    const counterDisplay = document.getElementById('currentServingCounterBadge');
+    const completeBtn = document.getElementById('operatorCompleteBtn');
+    const recallBtn = document.getElementById('operatorRecallBtn');
+    const skipBtn = document.getElementById('operatorSkipBtn');
+
+    if (counterDisplay) counterDisplay.textContent = `COUNTER 0${counter}`;
+
+    if (serving) {
+        tokenDisplay.textContent = serving.token_number;
+        customerDisplay.textContent = `${serving.customer_name} • ${serving.institution_name} (${serving.service_name})`;
+        if (completeBtn) completeBtn.style.display = 'inline-flex';
+        if (recallBtn) recallBtn.style.display = 'inline-flex';
+        if (skipBtn) skipBtn.style.display = 'inline-flex';
+    } else {
+        tokenDisplay.textContent = 'STANDBY';
+        customerDisplay.textContent = 'Click "Call Next Token" to advance the waiting queue.';
+        if (completeBtn) completeBtn.style.display = 'none';
+        if (recallBtn) recallBtn.style.display = 'none';
+        if (skipBtn) skipBtn.style.display = 'none';
+    }
+}
+
+async function callNextOperatorToken() {
+    if (isQueuePaused) {
+        showToast('Queue is currently paused. Resume queue to call next.', 'info');
+        return;
+    }
+    const counter = document.getElementById('operatorCounterSelect').value;
+    try {
+        const res = await fetch('/api/operator/call-next', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ counter: counter })
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+            showToast(`Called Token ${data.token.token_number} to Counter ${counter}`, 'success');
+            if (window.I18n) {
+                window.I18n.announceTokenVoice(data.token.token_number, counter, data.token.customer_name);
+            }
+            loadOperatorTokens();
+        } else {
+            showToast(data.message || 'No waiting customers in line.', 'info');
+        }
+    } catch (err) {
+        console.error('Call next error:', err);
+    }
+}
+
+async function completeCurrentOperatorToken() {
+    if (!currentActiveToken) return;
+    try {
+        const res = await fetch(`/api/tokens/${currentActiveToken.id}/status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'completed' })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`Completed service for ${currentActiveToken.token_number}`, 'success');
+            loadOperatorTokens();
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function recallCurrentOperatorToken() {
+    if (!currentActiveToken) return;
+    const counter = document.getElementById('operatorCounterSelect').value;
+    if (window.I18n) {
+        window.I18n.announceTokenVoice(currentActiveToken.token_number, counter, currentActiveToken.customer_name);
+    }
+    showToast(`Re-announced Token ${currentActiveToken.token_number}!`, 'info');
+}
+
+async function skipCurrentOperatorToken() {
+    if (!currentActiveToken) return;
+    skipSpecificToken(currentActiveToken.id);
+}
+
+async function skipSpecificToken(id) {
+    try {
+        const res = await fetch('/api/operator/skip', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token_id: id })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Token skipped.', 'info');
+            loadOperatorTokens();
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+async function recallSpecificToken(id) {
+    const counter = document.getElementById('operatorCounterSelect').value;
+    try {
+        const res = await fetch('/api/operator/recall', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token_id: id, counter: counter })
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+            showToast(`Recalled ${data.token.token_number}`, 'success');
+            if (window.I18n) {
+                window.I18n.announceTokenVoice(data.token.token_number, counter, data.token.customer_name);
+            }
+            loadOperatorTokens();
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function togglePauseQueue() {
+    isQueuePaused = !isQueuePaused;
+    const indicator = document.getElementById('queuePauseIndicator');
+    const pauseBtn = document.getElementById('operatorPauseBtn');
+
+    if (isQueuePaused) {
+        indicator.style.display = 'inline-flex';
+        pauseBtn.innerHTML = '<i class="fa-solid fa-play"></i> Resume Queue';
+        pauseBtn.style.color = '#fef08a';
+        showToast('Queue paused. Waiting customers notified.', 'info');
+    } else {
+        indicator.style.display = 'none';
+        pauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i> Pause Queue';
+        pauseBtn.style.color = '#ffffff';
+        showToast('Queue resumed.', 'success');
+    }
+}
+
+async function verifyCustomerCheckin() {
+    const input = document.getElementById('checkinCodeInput');
+    const code = input.value.trim();
+    if (!code) {
+        showToast('Please enter a verification code or token ID.', 'error');
+        return;
+    }
+    try {
+        const res = await fetch('/api/tokens/qr-checkin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: code })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`✅ ${data.message}`, 'success');
+            input.value = '';
+            loadOperatorTokens();
+        } else {
+            showToast(data.error || 'Invalid code.', 'error');
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+async function issueWalkinToken() {
+    const nameInput = document.getElementById('walkinNameInput');
+    const name = nameInput.value.trim() || 'Walk-in Visitor';
+    try {
+        const res = await fetch('/api/tokens/book', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                institution_id: 1,
+                branch_id: 1,
+                service_id: 1,
+                customer_name: name,
+                phone: '9876543210',
+                priority: 'regular',
+                token_type: 'instant'
+            })
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+            showToast(`Issued Walk-in Token ${data.token.token_number}!`, 'success');
+            nameInput.value = '';
+            loadOperatorTokens();
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+</script>
+{% endblock %}

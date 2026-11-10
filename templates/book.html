@@ -1,0 +1,263 @@
+{% extends 'base.html' %}
+
+{% block title %}Book Digital Token - QueueLess{% endblock %}
+
+{% block content %}
+<section class="booking-section">
+  <div class="container">
+    <!-- Header -->
+    <div style="margin-bottom: 32px; text-align: center;">
+      <span class="section-badge">Universal Smart Token</span>
+      <h1 class="section-title">Generate Your Digital Token</h1>
+      <p class="section-subtitle">
+        Select your institution, branch, department, and priority category to receive an instant QR token.
+      </p>
+    </div>
+
+    <div class="booking-layout">
+      <!-- Main Booking Form Card -->
+      <div class="form-card">
+        <form id="tokenBookingForm">
+          
+          <!-- Step 1: Choose Institution -->
+          <div class="form-group">
+            <label class="form-label" for="institutionSelect">
+              <i class="fa-solid fa-building" style="color: var(--emerald-green);"></i> 1. Select Institution <span class="req">*</span>
+            </label>
+            <select id="institutionSelect" class="form-select" required onchange="onInstitutionChange(this.value)">
+              {% for inst in institutions %}
+              <option value="{{ inst.id }}" {% if current_inst and current_inst.id == inst.id %}selected{% endif %}>
+                {{ inst.name }} ({{ inst.category }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Step 2: Choose Branch (With Operating Hours & Active Counters) -->
+          <div class="form-group">
+            <label class="form-label" for="branchSelect">
+              <i class="fa-solid fa-code-branch" style="color: var(--emerald-green);"></i> 2. Select Authorized Branch <span class="req">*</span>
+            </label>
+            <select id="branchSelect" class="form-select" required onchange="onBranchChange(this)">
+              <!-- Populated dynamically via JS -->
+            </select>
+            <!-- Branch Info Card -->
+            <div id="branchInfoBar" class="branch-status-box" style="display: none;">
+              <span id="branchStatusPill" class="inst-badge" style="background: #dcfce7; color: #15803d;">
+                <i class="fa-solid fa-circle-check"></i> Open Now
+              </span>
+              <span id="branchTimingText" style="font-size: 0.84rem; color: var(--text-muted);">
+                <i class="fa-solid fa-clock"></i> 09:00 AM - 05:00 PM
+              </span>
+              <span id="branchCountersText" style="font-size: 0.84rem; color: #0284c7; font-weight: 700;">
+                <i class="fa-solid fa-desktop"></i> 4 Active Counters
+              </span>
+            </div>
+          </div>
+
+          <!-- Step 3: Choose Service / Department -->
+          <div class="form-group">
+            <label class="form-label">
+              <i class="fa-solid fa-concierge-bell" style="color: var(--emerald-green);"></i> 3. Select Service / Department <span class="req">*</span>
+            </label>
+            <div class="services-radio-group" id="servicesContainer">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+
+          <!-- Step 4: Token Type (Walk-in vs Appointment) -->
+          <div class="form-group">
+            <label class="form-label">
+              <i class="fa-solid fa-calendar-days" style="color: var(--emerald-green);"></i> 4. Booking Type
+            </label>
+            <div class="booking-type-toggle">
+              <label class="type-pill selected">
+                <input type="radio" name="token_type" value="instant" checked onchange="toggleAppointmentFields(false)">
+                <i class="fa-solid fa-bolt"></i> <strong>Instant Walk-in Token</strong>
+              </label>
+              <label class="type-pill">
+                <input type="radio" name="token_type" value="appointment" onchange="toggleAppointmentFields(true)">
+                <i class="fa-solid fa-calendar-check"></i> <strong>Schedule Appointment</strong>
+              </label>
+            </div>
+
+            <!-- Conditional Appointment Fields -->
+            <div id="appointmentFields" style="display: none; margin-top: 14px; background: #f0fdf4; padding: 14px; border-radius: 12px; border: 1px dashed var(--mint-border);">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div>
+                  <label class="form-label" style="font-size: 0.82rem;">Date</label>
+                  <input type="date" id="appointmentDate" class="form-control" value="2026-11-10">
+                </div>
+                <div>
+                  <label class="form-label" style="font-size: 0.82rem;">Preferred Time Slot</label>
+                  <select id="appointmentSlot" class="form-select">
+                    <option value="09:30 AM">09:30 AM - 10:00 AM</option>
+                    <option value="10:30 AM" selected>10:30 AM - 11:00 AM</option>
+                    <option value="11:30 AM">11:30 AM - 12:00 PM</option>
+                    <option value="02:30 PM">02:30 PM - 03:00 PM</option>
+                    <option value="03:30 PM">03:30 PM - 04:00 PM</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 5: Priority Category (Senior, PwD, Pregnant, Emergency, Regular) -->
+          <div class="form-group">
+            <label class="form-label" for="priorityCategorySelect">
+              <i class="fa-solid fa-heart-pulse" style="color: #ef4444;"></i> 5. Priority Category
+            </label>
+            <select id="priorityCategorySelect" class="form-select">
+              <option value="regular" selected>Regular Citizen Queue</option>
+              <option value="senior">Senior Citizen (60+ Years) - Priority Desk</option>
+              <option value="pwd">Person with Disabilities (PwD) - Accessible Desk</option>
+              <option value="pregnant">Pregnant Women / Mothers with Infants</option>
+              <option value="emergency">Emergency / Urgent Medical Case</option>
+            </select>
+            <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+              Priority tokens are prioritized transparently to avoid long physical waiting.
+            </small>
+          </div>
+
+          <!-- Step 6: Customer Details -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px;" class="customer-info-grid">
+            <div class="form-group">
+              <label class="form-label" for="customerName">
+                Your Full Name <span class="req">*</span>
+              </label>
+              <input type="text" id="customerName" class="form-control" placeholder="e.g. Rahul Sharma" required>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label" for="customerPhone">
+                Mobile Number <span class="req">*</span>
+              </label>
+              <input type="tel" id="customerPhone" class="form-control" placeholder="e.g. 9876543210" pattern="[0-9]{10}" maxlength="10" required>
+            </div>
+          </div>
+
+          <!-- Submit Button -->
+          <button type="submit" id="generateTokenBtn" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 10px;">
+            <i class="fa-solid fa-qrcode"></i> Generate Smart Token & QR Code
+          </button>
+        </form>
+      </div>
+
+      <!-- Informative Instructions Sidebar -->
+      <aside>
+        <div class="booking-sidebar-card">
+          <h3 class="sidebar-title">
+            <i class="fa-solid fa-circle-info" style="color: var(--emerald-green);"></i>
+            Smart Token Features
+          </h3>
+          <ul class="booking-tips-list">
+            <li>
+              <i class="fa-solid fa-check"></i>
+              <span><strong>Real QR Code:</strong> Every token includes a secure QR code and verification code to confirm your physical arrival.</span>
+            </li>
+            <li>
+              <i class="fa-solid fa-check"></i>
+              <span><strong>Multi-Counter Balancing:</strong> Tokens are distributed evenly across open counters for lowest wait times.</span>
+            </li>
+            <li>
+              <i class="fa-solid fa-check"></i>
+              <span><strong>Live Audio Announcements:</strong> When your turn arrives, voice synthesizers announce your token number.</span>
+            </li>
+            <li>
+              <i class="fa-solid fa-check"></i>
+              <span><strong>Easy Cancellation:</strong> If you cannot make it, cancel from your screen to free up space for fellow citizens.</span>
+            </li>
+          </ul>
+
+          <div style="margin-top: 24px; padding: 16px; background: var(--white); border-radius: 12px; border: 1px dashed var(--mint-border); text-align: center;">
+            <span style="font-size: 0.86rem; color: var(--text-muted); display: block;">Are you an authorized staff member?</span>
+            <a href="{{ url_for('operator_dashboard') }}" style="color: var(--emerald-green); font-weight: 700; font-size: 0.92rem; display: inline-block; margin-top: 4px;">
+              Open Operator Calling Console →
+            </a>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================================== -->
+<!-- TOKEN CONFIRMATION RECEIPT MODAL (WITH REAL QR CODE GENERATOR) -->
+<!-- ======================================================================== -->
+<div class="modal-overlay" id="confirmationModal">
+  <div class="token-receipt-card" style="max-width: 500px;">
+    <div class="receipt-header-icon">
+      <i class="fa-solid fa-check"></i>
+    </div>
+    
+    <h3 style="color: var(--dark-green); font-size: 1.5rem; font-weight: 800;">Token Booked Successfully!</h3>
+    <p style="color: var(--text-muted); font-size: 0.92rem;">
+      Your smart token has been confirmed in the database.
+    </p>
+
+    <!-- Prominent Token Badge -->
+    <div class="token-big-badge">
+      <span style="font-size: 0.78rem; font-weight: 700; color: var(--emerald-green); text-transform: uppercase; letter-spacing: 1px;">YOUR TOKEN NUMBER</span>
+      <div class="token-big-number" id="receiptTokenNumber">HOSP-106</div>
+      <div id="receiptPriorityPill" class="inst-badge" style="margin-top: 4px; background: #ecfdf5; color: #047857;">
+        Regular Citizen
+      </div>
+    </div>
+
+    <!-- Real Dynamic QR Code Display -->
+    <div style="background: #ffffff; padding: 14px; border-radius: 12px; border: 1.5px solid var(--border-grey); margin: 16px auto; width: 170px; text-align: center;">
+      <div id="receiptQrCodeCanvas" style="display: flex; justify-content: center;"></div>
+      <small style="color: var(--text-muted); display: block; margin-top: 6px; font-size: 0.75rem;">
+        Verification Code: <strong id="receiptVerificationCode" style="color: var(--dark-green); font-family: monospace; font-size: 0.9rem;">QL-4921</strong>
+      </small>
+    </div>
+
+    <!-- Details Table -->
+    <table class="receipt-details-table">
+      <tr>
+        <td class="label"><i class="fa-solid fa-user"></i> Name:</td>
+        <td class="value" id="receiptCustomerName">-</td>
+      </tr>
+      <tr>
+        <td class="label"><i class="fa-solid fa-building"></i> Institution:</td>
+        <td class="value" id="receiptInstitution">-</td>
+      </tr>
+      <tr>
+        <td class="label"><i class="fa-solid fa-code-branch"></i> Branch:</td>
+        <td class="value" id="receiptBranch">-</td>
+      </tr>
+      <tr>
+        <td class="label"><i class="fa-solid fa-concierge-bell"></i> Service:</td>
+        <td class="value" id="receiptService">-</td>
+      </tr>
+      <tr>
+        <td class="label"><i class="fa-solid fa-users"></i> People Ahead:</td>
+        <td class="value" id="receiptAhead" style="color: var(--emerald-green); font-weight: 800;">-</td>
+      </tr>
+      <tr>
+        <td class="label"><i class="fa-solid fa-stopwatch"></i> Est. Wait Time:</td>
+        <td class="value" id="receiptWaitTime" style="color: #b45309; font-weight: 800;">-</td>
+      </tr>
+    </table>
+
+    <!-- Modal Action Buttons -->
+    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 20px;">
+      <a href="#" id="receiptTrackBtn" class="btn btn-primary">
+        <i class="fa-solid fa-radar"></i> Track Live Queue Status
+      </a>
+      <div style="display: flex; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="window.print()" style="flex: 1;">
+          <i class="fa-solid fa-print"></i> Print Slip
+        </button>
+        <button type="button" class="btn btn-outline" onclick="closeConfirmationModal()" style="flex: 1;">
+          Book Another
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/booking.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,181 @@
+{% extends 'base.html' %}
+
+{% block title %}My Customer Dashboard - QueueLess{% endblock %}
+
+{% block content %}
+<section style="padding: 40px 0 80px;">
+  <div class="container">
+
+    <!-- Top Profile & Welcome Strip -->
+    <div class="admin-header-row" style="margin-bottom: 28px;">
+      <div>
+        <span class="section-badge" style="background: #dbeafe; color: #1d4ed8;">Customer Portal</span>
+        <h1 style="font-size: 2rem; font-weight: 800; color: var(--dark-green);">My Queue Dashboard</h1>
+        <p style="color: var(--text-muted); font-size: 0.94rem;">
+          Welcome back, <strong>{{ customer_name }}</strong> (<i class="fa-solid fa-phone"></i> {{ customer_phone }}).
+        </p>
+      </div>
+
+      <div style="display: flex; gap: 10px;">
+        <a href="{{ url_for('book_token_page') }}" class="btn btn-primary btn-sm">
+          <i class="fa-solid fa-plus"></i> Book New Token
+        </a>
+        <a href="{{ url_for('customer_logout') }}" class="btn btn-outline btn-sm" style="color: var(--hospital-red); border-color: #fca5a5;">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </a>
+      </div>
+    </div>
+
+    <!-- Active Tokens Section -->
+    <div style="margin-bottom: 40px;">
+      <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--dark-green); margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">
+        <i class="fa-solid fa-bolt" style="color: #f59e0b;"></i> Active Tokens ({{ active_tokens|length }})
+      </h3>
+
+      {% if active_tokens %}
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+        {% for tok in active_tokens %}
+        <div class="form-card" style="box-shadow: var(--shadow-md); border-top: 4px solid var(--emerald-green);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+            <div>
+              <span style="font-size: 0.75rem; font-weight: 700; color: var(--emerald-green); text-transform: uppercase;">TOKEN NUMBER</span>
+              <div style="font-size: 2rem; font-weight: 900; color: var(--dark-green); letter-spacing: 0.5px;">{{ tok.token_number }}</div>
+            </div>
+            <span class="tracker-badge badge-{{ tok.status }}">
+              {{ tok.status|upper }}
+            </span>
+          </div>
+
+          <table class="receipt-details-table" style="font-size: 0.88rem; margin-bottom: 16px;">
+            <tr>
+              <td class="label">Institution:</td>
+              <td class="value"><strong>{{ tok.institution_name }}</strong></td>
+            </tr>
+            <tr>
+              <td class="label">Branch:</td>
+              <td class="value">{{ tok.branch_name }}</td>
+            </tr>
+            <tr>
+              <td class="label">Department:</td>
+              <td class="value"><span class="inst-badge">{{ tok.service_name }}</span></td>
+            </tr>
+            <tr>
+              <td class="label">Check-in:</td>
+              <td class="value">
+                {% if tok.checkin_status == 'checked_in' %}
+                <span style="color: #16a34a; font-weight: 700;"><i class="fa-solid fa-check-circle"></i> Confirmed</span>
+                {% else %}
+                <span style="color: #b45309; font-weight: 700;"><i class="fa-solid fa-clock"></i> Pending (Scan QR)</span>
+                {% endif %}
+              </td>
+            </tr>
+          </table>
+
+          <div style="display: flex; gap: 8px;">
+            <a href="{{ url_for('track_token_page', token=tok.token_number) }}" class="btn btn-primary btn-sm" style="flex: 1; text-align: center;">
+              <i class="fa-solid fa-radar"></i> Live Track
+            </a>
+            <button type="button" class="btn btn-outline btn-sm" onclick="cancelCustomerToken('{{ tok.token_number }}')" style="color: var(--hospital-red); border-color: #fca5a5;">
+              <i class="fa-solid fa-ban"></i> Cancel
+            </button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div style="text-align: center; padding: 40px 20px; background: #ffffff; border-radius: 16px; border: 1px dashed var(--border-grey);">
+        <i class="fa-solid fa-ticket-simple" style="font-size: 2.5rem; color: var(--text-muted); margin-bottom: 10px;"></i>
+        <h4 style="color: var(--dark-green);">No Active Queue Tokens</h4>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">You do not have any tokens currently waiting in line.</p>
+        <a href="{{ url_for('book_token_page') }}" class="btn btn-primary btn-sm" style="margin-top: 14px;">
+          Book a Token Now
+        </a>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Booking History Table -->
+    <div class="table-card">
+      <div class="table-header-bar">
+        <div>
+          <h3 style="font-size: 1.2rem; font-weight: 800; color: var(--dark-green);">Token History & Previous Bookings</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">Records of completed, skipped, or cancelled queue visits</p>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Token ID</th>
+              <th>Institution & Branch</th>
+              <th>Service</th>
+              <th>Status</th>
+              <th>Created At</th>
+              <th>Completed At</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if past_tokens %}
+              {% for p in past_tokens %}
+              <tr>
+                <td class="token-cell">{{ p.token_number }}</td>
+                <td>
+                  <strong>{{ p.institution_name }}</strong><br>
+                  <small style="color: var(--text-muted);">{{ p.branch_name }}</small>
+                </td>
+                <td><span class="inst-badge">{{ p.service_name }}</span></td>
+                <td>
+                  <span class="tracker-badge badge-{{ p.status }}" style="padding: 3px 8px; font-size: 0.75rem;">
+                    {{ p.status|upper }}
+                  </span>
+                </td>
+                <td><small style="color: var(--text-muted);">{{ p.created_at }}</small></td>
+                <td><small style="color: var(--text-muted);">{{ p.completed_at or '-' }}</small></td>
+                <td>
+                  {% if p.status == 'completed' %}
+                  <a href="{{ url_for('track_token_page', token=p.token_number) }}" class="btn btn-sm btn-secondary" style="font-size: 0.78rem; padding: 3px 8px;">
+                    <i class="fa-solid fa-star" style="color: #f59e0b;"></i> Rate
+                  </a>
+                  {% else %}
+                  <span style="color: var(--text-muted); font-size: 0.8rem;">-</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="7" style="text-align: center; padding: 24px; color: var(--text-muted);">
+                  No previous bookings found.
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function cancelCustomerToken(tokenNum) {
+  if (!confirm(`Are you sure you want to cancel token ${tokenNum}?`)) return;
+  try {
+    const res = await fetch(`/api/tokens/${encodeURIComponent(tokenNum)}/cancel`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Token ${tokenNum} cancelled successfully.`, 'info');
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      showToast(data.error || 'Failed to cancel token.', 'error');
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+</script>
+{% endblock %}

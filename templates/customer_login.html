@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block title %}Customer Login - QueueLess{% endblock %}
+
+{% block content %}
+<section style="padding: 70px 0 90px; background: linear-gradient(180deg, #f0fdf4 0%, var(--light-grey) 100%);">
+  <div class="container">
+    <div style="max-width: 440px; margin: 0 auto;">
+      
+      <div class="form-card" style="box-shadow: var(--shadow-lg);">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <div style="width: 56px; height: 56px; border-radius: 16px; background-color: var(--mint-bg); color: var(--emerald-green); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin: 0 auto 12px;">
+            <i class="fa-solid fa-user-check"></i>
+          </div>
+          <h2 style="font-size: 1.6rem; font-weight: 800; color: var(--dark-green);">Customer Login</h2>
+          <p style="font-size: 0.9rem; color: var(--text-muted);">
+            View your active tokens, bookings, and live queue status
+          </p>
+        </div>
+
+        {% if error %}
+        <div style="background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: 8px; font-size: 0.88rem; margin-bottom: 18px;">
+          <i class="fa-solid fa-circle-exclamation"></i> {{ error }}
+        </div>
+        {% endif %}
+
+        <form action="{{ url_for('customer_login') }}" method="POST">
+          <div class="form-group">
+            <label class="form-label" for="phone">Mobile Number</label>
+            <input type="tel" id="phone" name="phone" class="form-control" placeholder="e.g. 9876543210" value="9876543210" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="password">Password</label>
+            <input type="password" id="password" name="password" class="form-control" placeholder="••••••••" value="cust123" required>
+          </div>
+
+          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 8px;">
+            <i class="fa-solid fa-right-to-bracket"></i> Login to Dashboard
+          </button>
+        </form>
+
+        <div style="text-align: center; margin-top: 18px; font-size: 0.9rem; color: var(--text-muted);">
+          Don't have an account? <a href="{{ url_for('customer_register') }}" style="color: var(--emerald-green); font-weight: 700;">Register here</a>
+        </div>
+
+        <div style="margin-top: 20px; padding: 12px; background: var(--mint-bg); border-radius: 8px; text-align: center; font-size: 0.82rem; color: var(--dark-green);">
+          <strong>💡 Demo Customer Login:</strong> Mobile: <code>9876543210</code> | Password: <code>cust123</code>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+{% endblock %}

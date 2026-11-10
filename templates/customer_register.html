@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% block title %}Customer Registration - QueueLess{% endblock %}
+
+{% block content %}
+<section style="padding: 70px 0 90px; background: linear-gradient(180deg, #f0fdf4 0%, var(--light-grey) 100%);">
+  <div class="container">
+    <div style="max-width: 480px; margin: 0 auto;">
+      
+      <div class="form-card" style="box-shadow: var(--shadow-lg);">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <div style="width: 56px; height: 56px; border-radius: 16px; background-color: var(--mint-bg); color: var(--emerald-green); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin: 0 auto 12px;">
+            <i class="fa-solid fa-user-plus"></i>
+          </div>
+          <h2 style="font-size: 1.6rem; font-weight: 800; color: var(--dark-green);">Create Customer Profile</h2>
+          <p style="font-size: 0.9rem; color: var(--text-muted);">
+            Save your booking preferences and track digital queue tokens
+          </p>
+        </div>
+
+        {% if error %}
+        <div style="background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: 8px; font-size: 0.88rem; margin-bottom: 18px;">
+          <i class="fa-solid fa-circle-exclamation"></i> {{ error }}
+        </div>
+        {% endif %}
+
+        <form action="{{ url_for('customer_register') }}" method="POST">
+          <div class="form-group">
+            <label class="form-label" for="name">Full Name <span class="req">*</span></label>
+            <input type="text" id="name" name="name" class="form-control" placeholder="e.g. Rahul Sharma" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="phone">Mobile Number <span class="req">*</span></label>
+            <input type="tel" id="phone" name="phone" class="form-control" placeholder="e.g. 9876543210" pattern="[0-9]{10}" maxlength="10" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="email">Email Address (Optional)</label>
+            <input type="email" id="email" name="email" class="form-control" placeholder="name@example.com">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="password">Create Password <span class="req">*</span></label>
+            <input type="password" id="password" name="password" class="form-control" placeholder="••••••••" required>
+          </div>
+
+          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 8px;">
+            <i class="fa-solid fa-check"></i> Register Account
+          </button>
+        </form>
+
+        <div style="text-align: center; margin-top: 18px; font-size: 0.9rem; color: var(--text-muted);">
+          Already have an account? <a href="{{ url_for('customer_login') }}" style="color: var(--emerald-green); font-weight: 700;">Login here</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+{% endblock %}
